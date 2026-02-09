@@ -6,48 +6,47 @@ import numpy as np
 run the simulation using the estimated Jacobian based controller
 """
 
-model_path = "shadow_hand/scene_pen.xml"
-model = mujoco.MjModel.from_xml_path(model_path)
-data = mujoco.MjData(model)
-mujoco.mj_resetDataKeyframe(model, data, 0)  # Reset the state to keyframe 0
+#=MUJOCO SETUP===================================================================================================================
+model_path = "shadow_hand/scene_pen.xml" 
+model = mujoco.MjModel.from_xml_path(model_path) # loads and compiles xml into model which holds the static model parameters (geometry, joints, acutators, hierarchy, etc.)
+data = mujoco.MjData(model) # allocated runtime state which holds the dynamic state of the system (joint positions, velocities, forces, contacts, etc.)
+mujoco.mj_resetDataKeyframe(model, data, 0)  # Reset the state to keyframe 0 (keyframe is named snapshot of state stored in xml, keyframe zero is the first one, and we only have one in this case)
 
-# copied from the XML
-init_ctrl = [0, 0,
-             0.24, 1., 0, 0.5, 0.3,
-             0, 0.4, 2.2,
-             0, 1, 2.,
-             0, 1., 3.14,
-             0, 0, 1., 3.14]
+# Keyframe 0 (copied from the XML)
+init_ctrl = [0, 0,                      # wrist actuators
+             0.24, 1.0, 0, 0.5, 0.3,    # thumb actuators
+             0, 0.4, 2.2,               # foreringer actuators
+             0, 1.0, 2.0,               # middle finger actuators   
+             0, 1.0, 3.14,              # ring finger actuators
+             0, 0, 1.0, 3.14]           # little finger actuators
 init_ctrl = np.array(init_ctrl)
 data.ctrl[:] = init_ctrl
+#====================================================================================================================
 
-# params for sphere position task with all actuators
-actuators_enabled = np.arange(model.nu)  # use all actuators
-eps = 0.002  # how much to weigh the "going back to init pose" term
-
-# params for sphere position task with no wrist
-actuators_enabled = np.arange(2, model.nu)  # disable the first two actuators (they control the wrist)
-eps = 0.003
-
+#=SHADOW HAND SETUP===================================================================================================================
+# get the indices to access the robot's state (params for writing task with no wrist)
+actuators_enabled = np.arange(2, model.nu) # disable the first two actuators (they control the wrist), else actuators_enabled = np.arange(model.nu) to enable all actuators 
+eps = 0.003 # eps = 0.002 is good for all actuators, but when we disable the wrist, we can increase eps, i.e. how much we weigh the going back to init pose term
 actuator_num = len(actuators_enabled)
-
-# get the indices to access the robot's state
 # get the names of the actuators
 actuator_names = [mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i) for i in actuators_enabled]
-# get the indices of the corresponding joints
 # convert the actuator names to the joint names (specific to the shadow hand)
 actuated_joint_names = [actuator_name.replace("_A_", "_") for actuator_name in actuator_names]
+# actuator names with "0" actuate tendons that go through joints with "1" in their names
 actuated_joint_names = [jnt_name.replace("0", "1") for jnt_name in actuated_joint_names]
+# get the indices of the corresponding joints
 actuated_joint_ids = []
 for joint_name in actuated_joint_names:
     joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
     assert joint_id != -1, f"Joint {joint_name} not found"
     actuated_joint_ids.append(joint_id)
+print(f"{actuator_names=}\n{actuated_joint_names=}\n{actuated_joint_ids=}")
+
 # start addr in 'qvel' for joint's data
 actuated_dof_ids = [int(model.jnt_dofadr[joint_id]) for joint_id in actuated_joint_ids]
 # start addr in 'qpos' for joint's data
 actuated_qpos_ids = [int(model.jnt_qposadr[joint_id]) for joint_id in actuated_joint_ids]
-print(f"{actuator_names=}\n{actuated_joint_names=}\n{actuated_joint_ids=}\n{actuated_dof_ids=}\n{actuated_qpos_ids=}")
+print(f"{actuated_dof_ids=}\n{actuated_qpos_ids=}")
 
 # find out which actuators belong to each finger
 finger_name_filters = ["_TH", "_FF", "_MF", "_RF", "_LF"]
@@ -60,48 +59,40 @@ for i in range(actuator_num):
     if (actuator2finger[i] == -1):
         print(f"Actuator {actuator_names[i]} not assigned to any finger")
 print(f"{actuator2finger=}")
+#====================================================================================================================
 
-# get the indices to access the object's state
+#=OBJECT SETUP===================================================================================================================
+# get the indices to access the object's state, in this case, the object is the pen tip
 object_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "object")
 assert object_id != -1, "Object not found"
+# build the index ranges
 object_dof_ids = np.arange(model.body_dofadr[object_id], model.body_dofadr[object_id] + model.body_dofnum[object_id])
+# since free object has 7 qpos (3 for position, 4 for orientation (quaternions))
 object_qpos_ids = np.arange(model.body_jntadr[object_id], model.body_jntadr[object_id] + 7)
 print(f"{object_id=}\n{object_dof_ids=}\n{object_qpos_ids=}")
 
 pen_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "pen")
 assert pen_id != -1, "Pen not found"
 
+# for the ball task
 # get the indices to access the ghost object (just to show the target pose)
 # ghost_object_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "object_ghost")
 # assert ghost_object_id != -1, "Ghost object not found"
 
+# rercompute data and then use it to set the initial pose of the object
 mujoco.mj_forward(model, data)
 body_init_pose = data.qpos[object_qpos_ids].copy()
 print(f"{body_init_pose=}")
+
 body_target_pos = np.zeros(3)
+#====================================================================================================================
 
-# the estimated control Jacobian
+#=JACOBIAN SETUP===================================================================================================================
+# the estimated control Jacobian -> maps joint velocities to task space velocities
 J = np.zeros((3, actuator_num))
-# covariance of the estimated J
+# covariance of the estimated J -> how uncertain we are about each entry in J, used for weighing the update step (used for each column of J, which corresponds to an actuator, so it's a vector of length actuator_num)
 p = np.ones(actuator_num) * 1e-1
-
-def path(t):
-    """
-    when given a parameter t, returns the point on the path at t and the time derivative (i.e. velocity at that point)
-    """
-    a = 0.005
-    offset = np.array([0.09, -0.35, -0.068])
-    x = a * (np.cos(t) / (1 + np.sin(t)**2))
-    y = a * (np.sin(t) * np.cos(t) / (1 + np.sin(t)**2))
-    dx = a*(np.sin(t)**2 - 3)*np.sin(t)/(np.sin(t)**2 + 1)**2
-    dy = a*(1 - 3*np.sin(t)**2)/(np.sin(t)**2 + 1)**2
-
-    x = a * np.cos(t)
-    y = a * np.sin(t)
-    dx = -a * np.sin(t)
-    dy = a * np.cos(t)
-
-    return np.array([x, y, 0]) + offset, np.array([dx, dy, 0])
+#====================================================================================================================
 
 def check_finger_contact():
     """
@@ -110,7 +101,9 @@ def check_finger_contact():
     # if the body name contains any of these strings, it belongs to a finger
     finger_name_filters = ['rh_th', 'rh_ff', 'rh_mf', 'rh_rf', 'rh_lf']
     finger_contact_detected = np.zeros(5)
+
     for contact in data.contact:
+        # collision detection is between geoms
         collision_body_ids = [model.geom_bodyid[geom] for geom in contact.geom]
         if pen_id in collision_body_ids:
             # this contact is with the object; find out if it is in contact with a finger
@@ -120,60 +113,97 @@ def check_finger_contact():
                 if finger_name_filter in other_body_name:
                     finger_contact_detected[i] = 1
                     break
+
     # print(f"{finger_contact_detected=}")
     return finger_contact_detected
 
+#=BALL ROTATION TASK===================================================================================================================
+# for ball rotation task
+# def compute_task_space_command():
+#     """
+#     compute the task space command that will bring the system closer to task space goal
+#     it is supposed to be the desired velocity in the task space
+#     """
+#     # the target should slowly draw a circle
 
-def compute_task_space_command():
-    """
-    compute the task space command that will bring the system closer to task space goal
-    it is supposed to be the desired velocity in the task space
-    """
-    # the target should slowly draw a circle
-    phase = data.time * 3
-    body_target_pos[:] = body_init_pose[:3] + 0.02 * np.array([np.sin(phase), np.cos(1.4*phase), np.cos(1.3*phase)*0.2])
-    body_target_pos[2] -= 0.02
-    # move the mocap object to the target position for visualization
-    data.mocap_pos[:] = body_target_pos
-    body_pos = data.xpos[object_id]
+#     # phase sets the speed of drawing
+#     phase = data.time * 3
+
+#     # the target position is a circle centered at the initial position of the object, with radius 0.02, and the z coordinate is slightly lower than the initial position
+#     body_target_pos[:] = body_init_pose[:3] + 0.02 * np.array([np.sin(phase), np.cos(1.4*phase), np.cos(1.3*phase)*0.2])
+#     body_target_pos[2] -= 0.02
+
+#     # move the mocap object to the target position for visualization
+#     data.mocap_pos[:] = body_target_pos
+#     body_pos = data.xpos[object_id]
     
-    task_space_vel = (body_target_pos - body_pos) * 8
-    return task_space_vel
+#     # scale the position error  with gain 8 to get the desired velocity
+#     task_space_vel = (body_target_pos - body_pos) * 8
+#     return task_space_vel
 
-def compute_task_space_vel():
-    """
-    return the velocity of task
-    """
-    return data.qvel[object_dof_ids[:3]]
+# for ball rotation task
+# def compute_task_space_vel():
+#     """
+#     return the velocity of task
+#     """
+#     return data.qvel[object_dof_ids[:3]]
+#====================================================================================================================
 
-def compute_task_space_command_cube():
-    """
-    compute command to rotate the cube towards target orientation
-    """
-    quat_current = data.xquat[object_id]
-    quat_target = data.xquat[ghost_object_id]
-    pos_current = data.xpos[object_id]
-    pos_target = data.xpos[ghost_object_id]
-    rot_diff = np.zeros(3)
-    mujoco.mju_subQuat(rot_diff, quat_target, quat_current)
-    pos_diff = pos_target - pos_current
-    data.mocap_quat[:] = quat_target
-    data.mocap_pos[:] = body_init_pose[:3] + np.array([0., 0., -0.04])
-    if np.linalg.norm(rot_diff) < 0.1:
-        print("Target orientation reached")
-        # generate new target orientation
-        quat_target = np.random.rand(4)
-        quat_target /= np.linalg.norm(quat_target)
-        data.mocap_quat[:] = quat_target
+#=CUBE ROTATION TASK===================================================================================================================
+# for cube rotation task
+# def compute_task_space_command_cube():
+#     """
+#     compute command to rotate the cube towards target orientation
+#     """
+#     quat_current = data.xquat[object_id]
+#     quat_target = data.xquat[ghost_object_id]
+#     pos_current = data.xpos[object_id]
+#     pos_target = data.xpos[ghost_object_id]
+#     rot_diff = np.zeros(3)
+#     mujoco.mju_subQuat(rot_diff, quat_target, quat_current)
+#     pos_diff = pos_target - pos_current
+
+#     data.mocap_quat[:] = quat_target
+#     data.mocap_pos[:] = body_init_pose[:3] + np.array([0., 0., -0.04])
+
+#     if np.linalg.norm(rot_diff) < 0.1:
+#         print("Target orientation reached")
+#         # generate new target orientation
+#         quat_target = np.random.rand(4)
+#         quat_target /= np.linalg.norm(quat_target)
+#         data.mocap_quat[:] = quat_target
     
-    return np.concatenate((pos_diff * 8, rot_diff * 1))
+#     return np.concatenate((pos_diff * 8, rot_diff * 1))
 
+# for cube rotation task
+# def compute_task_space_vel_cube():
+#     """
+#     compute rotational velocity of the cube
+#     """
+#     return data.qvel[object_dof_ids]
+#====================================================================================================================
 
-def compute_task_space_vel_cube():
+#=PEN TASK===================================================================================================================
+def path(t):
     """
-    compute rotational velocity of the cube
+    when given a parameter t, returns the point on the path at t and the time derivative (i.e. velocity at that point)
     """
-    return data.qvel[object_dof_ids]
+    r = 0.005
+    offset = np.array([0.09, -0.35, -0.068])
+
+    # lemniscate/figure-8 path
+    x = r * (np.cos(t) / (1 + np.sin(t)**2))
+    y = r * (np.sin(t) * np.cos(t) / (1 + np.sin(t)**2))
+    dx = r*(np.sin(t)**2 - 3)*np.sin(t)/(np.sin(t)**2 + 1)**2
+    dy = r*(1 - 3*np.sin(t)**2)/(np.sin(t)**2 + 1)**2
+
+    # circular path
+    x = r * np.cos(t)
+    y = r * np.sin(t)
+    dx = -r * np.sin(t)
+    dy = r * np.cos(t)
+
+    return np.array([x, y, 0]) + offset, np.array([dx, dy, 0])
 
 def compute_task_space_command_pen():
     t = data.time
@@ -183,7 +213,9 @@ def compute_task_space_command_pen():
     return task_space_vel
 
 def compute_task_space_vel_pen():
+    # the sensor data is, as defined in the xml, the velocity of the pen tip
     return data.sensordata
+#====================================================================================================================
 
 def control_cb(model, data):
     """
