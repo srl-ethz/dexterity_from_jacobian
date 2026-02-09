@@ -91,6 +91,7 @@ body_target_pos = np.zeros(3)
 # the estimated control Jacobian -> maps joint velocities to task space velocities
 J = np.zeros((3, actuator_num))
 # covariance of the estimated J -> how uncertain we are about each entry in J, used for weighing the update step (used for each column of J, which corresponds to an actuator, so it's a vector of length actuator_num)
+# the covariance would define the inter actuator dependencies that the controller learns, for example, if two actuators always move together to achieve a certain task space velocity, then the covariance of those two actuators would be similar, and the update of one actuator would also update the other actuator in a similar way
 p = np.ones(actuator_num) * 1e-1
 #====================================================================================================================
 
@@ -117,6 +118,7 @@ def check_finger_contact():
     # print(f"{finger_contact_detected=}")
     return finger_contact_detected
 
+#region <Ball Rotation Task>
 #=BALL ROTATION TASK===================================================================================================================
 # for ball rotation task
 # def compute_task_space_command():
@@ -148,7 +150,9 @@ def check_finger_contact():
 #     """
 #     return data.qvel[object_dof_ids[:3]]
 #====================================================================================================================
+#endregion
 
+#region <Cube Rotation Task>
 #=CUBE ROTATION TASK===================================================================================================================
 # for cube rotation task
 # def compute_task_space_command_cube():
@@ -182,6 +186,7 @@ def check_finger_contact():
 #     """
 #     return data.qvel[object_dof_ids]
 #====================================================================================================================
+#endregion
 
 #=PEN TASK===================================================================================================================
 def path(t):
@@ -217,23 +222,26 @@ def compute_task_space_vel_pen():
     return data.sensordata
 #====================================================================================================================
 
+#====================================================================================================================
 def control_cb(model, data):
     """
     callback function called on every step, and is used to set the control command
     """
-    # don't do anything for the first moments (until ball falls)
+    # check which fingers are in contact with the object
     finger_contacts = check_finger_contact()
     # compute for which actuators affect the object currently (the finger that the actuator belongs to is in contact with the object)
     actuator_affecting_object_ids = []
     for i in range(actuator_num):
+        # go through each actuator, check if the associated finger is in contact with the object, and if yes, append it to the list of relevant actuators
         if finger_contacts[int(actuator2finger[i])]:
             actuator_affecting_object_ids.append(i)
-    # matrix that reduces the dimension 
+
+    # create matrix that reduces the dimension by excluding currently non-relevant actuators
     actuator_affecting_object_selectionmatrix = np.zeros((len(actuator_affecting_object_ids), actuator_num))
     for i, actuator_id in enumerate(actuator_affecting_object_ids):
         actuator_affecting_object_selectionmatrix[i, actuator_id] = 1
 
-    # first update the estimation of the Jacobian, just for the actuators whose fingers are in contact with the object
+    # first update the estimation of the Jacobian
     global J, p
     q = data.qpos[actuated_qpos_ids]
     dq = data.qvel[actuated_dof_ids]
@@ -246,27 +254,65 @@ def control_cb(model, data):
     q_slice = q[actuator_affecting_object_ids]
     dq_slice = dq[actuator_affecting_object_ids]
 
+    #region <Explanation of the update rule>
+    """
+        The update rule is derived from a probabilistic model where we assume that the error in task-space velocity prediction is Gaussian with variance r, and we also have a prior on the Jacobian with covariance p. 
+        The update is a form of Bayesian update where we weigh the new information (the error in prediction) against our prior uncertainty (p) to get a new estimate of the Jacobian (J_slice) and its covariance (p_slice).
+    
+        The numerator computes the product of the prediction error (u - J_slice @ dq_slice) and the weighted joint velocities (p_slice * dq_slice), which gives us a direction to update the Jacobian. 
+        The denominator normalizes this update by the total uncertainty, which includes both the uncertainty in our Jacobian estimate (p_slice) and the observation noise (r).
+        We want to update our Jacobian estimate in a way that reduces this error, while also considering how certain we are about our current estimate (p_slice) and how noisy our observations are (r).
+
+        -u (a  is the observed task-space velocity, 
+        -J_slice @ dq_slice is the predicted task-space velocity based on our current Jacobian estimate and the joint velocities
+        -p_slice * dq_slice weighs the contribution of each actuator's velocity to the update based on our current uncertainty about that actuator's effect on the task-space velocity (the Jacobian entries corresponding to that actuator).
+        -p_slice.T @ (dq_slice * dq_slice) gives us a measure of how much we expect the joint velocities to affect the task-space velocity based on our current uncertainty
+
+        We update the jacobian estimate by adding the new measurement weighted by the current uncertainty and how informative the measurement is (numerator/denominator). 
+        If the prediction error is large and we are uncertain about the Jacobian (large p_slice), we will have a larger update. If the observation noise r is large, we will have a smaller update since we trust the new measurement less.
+        
+        We update the covariance p_slice to reflect whether we learned something new about the jacobian, in which case the uncertainty shrinks. 
+        The more an actuator contributes to the task-space velocity (the larger p_slice * dq_slice * dq_slice is), the more we reduce our uncertainty about that actuator's effect on the task-space velocity.
+        (the covariance would define the inter actuator dependencies that the controller learns, for example, if two actuators always move together to achieve a certain task space velocity, then the covariance of those two actuators would be similar, and the update of one actuator would also update the other actuator in a similar way)
+        
+        General Notes:
+            -reshape(-1, 1) makes a column vector with as many rows as required
+
+    """
+    #endregion
+    
     numerator = (u - J_slice @ dq_slice).reshape((-1, 1)) @ (p_slice * dq_slice).reshape((1, -1))
     denominator = p_slice.T @ (dq_slice * dq_slice) + r
     J_slice[:] += numerator / denominator
     p_slice[:] *= 1 - p_slice * dq_slice * dq_slice / denominator
 
+    # update the full Jacobian and covariance matrix with the updated slices
     J[:, actuator_affecting_object_ids] = J_slice
     p[actuator_affecting_object_ids] = p_slice
 
     task_space_vel_desired = compute_task_space_command_pen()
+
     # compute the updated commanded joint position which tries to achieve the desired task space vel while bringing it back to initial pose
+
     dt = model.opt.timestep
+    # this is a pullback term to the initial pose, which is important to avoid drifting too far away from the initial pose, it also helps with exploration in the beginning when the Jacobian estimate is very bad, by encouraging the controller to try different configurations around the initial pose
     ctrl_0 = init_ctrl[actuators_enabled] - data.ctrl[actuators_enabled]
-    # Tikhonov regularization with a shifted center
+
+    # Tikhonov regularization with a shifted center -> delta_q is a position style command (strictly it represents whatever the actuators ctrl represents in xml)
+    # We use Tikhonov to ensure stable and invertible solution, and to introduce a bias towards the initial control command to prevent drift
     delta_q = np.linalg.inv(actuator_affecting_object_selectionmatrix.T@J_slice.T@J_slice@actuator_affecting_object_selectionmatrix + eps*np.eye(actuator_num)) @\
               (actuator_affecting_object_selectionmatrix.T@J_slice.T @ task_space_vel_desired + eps * ctrl_0) * dt
-    # don't move too fast
+    
+    # limit speed (scale velocity with dt to get position limit)
     max_joint_vel = 10
     delta_q = np.clip(delta_q, -max_joint_vel*dt, max_joint_vel*dt)
+
+    # update the control command for the next step, while enforcing the actuator control limits defined in the model
     data.ctrl[actuators_enabled] += delta_q
     data.ctrl[:] = np.clip(data.ctrl, model.actuator_ctrlrange[:, 0], model.actuator_ctrlrange[:, 1])
 
+
+#region <Mujoco Viewer Setup>
 mujoco.set_mjcb_control(control_cb)
 
 with mujoco.viewer.launch_passive(model, data) as viewer:
@@ -298,3 +344,4 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         #### simulate ####
         mujoco.mj_step(model, data)
         viewer.sync()
+#endregion
