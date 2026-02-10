@@ -26,6 +26,8 @@ data.ctrl[:] = init_ctrl
 #=SHADOW HAND SETUP===================================================================================================================
 # get the indices to access the robot's state (params for writing task with no wrist)
 actuators_enabled = np.arange(2, model.nu) # disable the first two actuators (they control the wrist), else actuators_enabled = np.arange(model.nu) to enable all actuators 
+# actuators_enabled = np.arange(model.nu) # enable all actuators
+# eps = 0.002
 eps = 0.003 # eps = 0.002 is good for all actuators, but when we disable the wrist, we can increase eps, i.e. how much we weigh the going back to init pose term
 actuator_num = len(actuators_enabled)
 # get the names of the actuators
