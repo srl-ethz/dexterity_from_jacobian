@@ -33,7 +33,7 @@ end
 # Unset irrelevant variables.
 deactivate nondestructive
 
-set -gx VIRTUAL_ENV /home/kai-ste/Desktop/jacobi/jaboci_repo/dexterity_from_jacobian/jacobi_venv
+set -gx VIRTUAL_ENV /home/kai-ste/Desktop/jacobi/jacobi_repo/dexterity_from_jacobian/jacobi_venv
 
 set -gx _OLD_VIRTUAL_PATH $PATH
 set -gx PATH "$VIRTUAL_ENV/"bin $PATH

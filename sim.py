@@ -21,6 +21,17 @@ init_ctrl = [0, 0,                                  # wrist actuators
              0, 1.0, 3.14,                          # ring finger actuators
              0, 0, 1.0, 3.14]                       # little finger actuators
 
+# alternate handpose
+init_ctrl2 = [0, 0,                                  # wrist actuators
+             0.24, 1.0, 0, 0.5, 0.3,                # thumb actuators
+             0, 0.4, 2.2,                           # forefinger actuators
+             0, 1.0, 1.0,                           # middle finger actuators   
+             0, 1.0, 3.14,                          # ring finger actuators
+             0, 0, 1.0, 3.14]                       # little finger actuators
+
+
+
+
 init_ctrl = np.array(init_ctrl)
 data.ctrl[:] = init_ctrl
 #====================================================================================================================
@@ -122,6 +133,8 @@ and the update of one actuator would also update the other actuator in a similar
 #====================================================================================================================
 #endregion
 
+c_filtered = 1.0
+
 #region <Contact Detection>
 #=Contact Detection===================================================================================================================
 def check_finger_contact():
@@ -142,7 +155,10 @@ def check_finger_contact():
                     finger_contact_detected[i] = 1
                     break
 
-    print(f"{finger_contact_detected=}")
+    
+    t = data.time
+    if abs(t % 1) < 1e-6:
+        print(f"{finger_contact_detected=}")
 
     return finger_contact_detected
 #endregion
@@ -228,11 +244,14 @@ def path(t):
     # dx = r*(np.sin(t)**2 - 3)*np.sin(t)/(np.sin(t)**2 + 1)**2
     # dy = r*(1 - 3*np.sin(t)**2)/(np.sin(t)**2 + 1)**2
 
+    time_scale_factor = 0.5                    
+    slower_path = time_scale_factor * t
+
     # circular path
-    x = r * np.cos(t)
-    y = r * np.sin(t)
-    dx = -r * np.sin(t)
-    dy = r * np.cos(t)
+    x = r * np.cos(slower_path)
+    y = r * np.sin(slower_path)
+    dx = -r * time_scale_factor * np.sin(slower_path)
+    dy = r * time_scale_factor * np.cos(slower_path)
 
     return np.array([x, y, 0]) + offset, np.array([dx, dy, 0])
 
@@ -256,6 +275,12 @@ def control_cb(model, data):
     """
     # check which fingers are in contact with the object
     finger_contacts = check_finger_contact()
+
+    contacts = sum(finger_contacts)
+    c = contacts / 3.0
+    global c_filtered
+    c_filtered = (0.95) * c_filtered + (0.05) * c
+    print(f"{c_filtered=}")
 
     # compute which actuators currently affect the object (the finger that the actuator belongs to is in contact with the object)
     actuator_affecting_object_ids = []
@@ -319,15 +344,20 @@ def control_cb(model, data):
     # compute the updated commanded joint positions which try to achieve the desired task space velocity while bringing it back to initial pose
 
     task_space_vel_desired = compute_task_space_command_pen()
+    task_space_vel_desired_adjusted = c_filtered * task_space_vel_desired       # scale the desired task space velocity with the contact confidence, so that when the confidence is low, the controller tries to go back to the initial pose and explore around it to find a better configuration, and when the confidence is high, it tries to achieve the desired task space velocity
+
     dt = model.opt.timestep
 
     # calculate the pullback term to the initial pose, to avoid drifting too far from the initial pose and helps with exploration in the beginning when the Jacobian estimate is bad (by encouraging the controller to try different configurations around the initial pose)
     ctrl_0 = init_ctrl[actuators_enabled] - data.ctrl[actuators_enabled]
 
+    eps_adjusted = eps * (1 + (1 - c_filtered))
+
     # Tikhonov regularization with a shifted center -> delta_q is a position style command (strictly it represents whatever the actuators ctrl represents in xml)
     # We use Tikhonov to ensure stable and invertible solution, and to introduce a bias towards the initial control command to prevent drift
+    # it takes this form because this is originally a minimization of the cost function: ||J_slice @ delta_q - task_space_vel_desired||^2 + eps * ||delta_q - ctrl_0||^2, where the first term tries to achieve the desired task space velocity and the second term tries to keep the control command close to the initial command, and eps is the regularization parameter that weighs these two objectives
     delta_q = np.linalg.inv(actuator_affecting_object_selectionmatrix.T@J_slice.T@J_slice@actuator_affecting_object_selectionmatrix + eps*np.eye(actuator_num)) @\
-              (actuator_affecting_object_selectionmatrix.T@J_slice.T @ task_space_vel_desired + eps * ctrl_0) * dt
+              (actuator_affecting_object_selectionmatrix.T@J_slice.T @ task_space_vel_desired_adjusted + eps_adjusted * ctrl_0) * dt
     
     # limit speed (scale velocity with dt to get position limit)
     max_joint_vel = 10
@@ -344,20 +374,19 @@ def control_cb(model, data):
 mujoco.set_mjcb_control(control_cb)
 
 with mujoco.viewer.launch_passive(model, data) as viewer:
-    t_trail_timerange = 1.0                     # how much in the future and past to draw path
+    t_trail_timerange = 4.0                     # how much in the future and past to draw path
     t_draw_future_num_points = 10               # how many points to use to draw the future path
     
     # add the required number of geoms to draw the future path
     scene = viewer.user_scn
     scene.ngeom += t_draw_future_num_points
 
-    # draw past and future path
     while viewer.is_running():
         t = data.time
         for i in range(t_draw_future_num_points):
             t_ = t + (t_trail_timerange/2 - t_trail_timerange * i / t_draw_future_num_points)       # calculates the times at which to draw points, from t - t_trail_timerange/2 to t + t_trail_timerange/2
             pos, _ = path(t_)
-            rgba = np.array([1.0, 1.0, 1.0, 1.0 - i / t_draw_future_num_points])                    # fade transparancy from white (future) to fully transparent (past)
+            rgba = np.array([0.0, 0.0, 1.0, 1.0 - i / t_draw_future_num_points])                    # fade transparancy from white (future) to fully transparent (past)
 
             # make current point red and fully opaque
             if i == t_draw_future_num_points//2:
@@ -366,7 +395,7 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
             # draw a sphere at the calculated position with the calculated color, using the geoms we added to the scene
             mujoco.mjv_initGeom(scene.geoms[scene.ngeom-1-i],
                 mujoco.mjtGeom.mjGEOM_SPHERE,
-                np.array([0.001, 0, 0]),            # size
+                np.array([0.0005, 0, 0]),            # size
                 pos,                                # position
                 np.eye(3).flatten(),                # rotation
                 rgba,                               # colour

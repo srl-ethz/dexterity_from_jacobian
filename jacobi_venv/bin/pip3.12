@@ -1,4 +1,4 @@
-#!/home/kai-ste/Desktop/jacobi/jaboci_repo/dexterity_from_jacobian/jacobi_venv/bin/python3
+#!/home/kai-ste/Desktop/jacobi/jacobi_repo/dexterity_from_jacobian/jacobi_venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys
