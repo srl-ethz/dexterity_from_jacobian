@@ -4,3 +4,9 @@ ERROR: Python exception raised
 Tue Feb 10 07:47:28 2026
 ERROR: mj_setKeyframe: keyframe index cannot be negative
 
+Thu Feb 12 00:37:22 2026
+ERROR: Python exception raised
+
+Thu Feb 12 00:37:42 2026
+ERROR: Python exception raised
+

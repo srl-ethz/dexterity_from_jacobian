@@ -1,6 +1,6 @@
 <mujoco model="right_shadow_hand scene">
 
-  <!-- <option gravity="0 0 0"/> -->
+  <!-- <option gravity="0 0 0"/>  -->
   <compiler texturedir="assets"/>
   <include file="right_hand_tilted.xml"/>
 
