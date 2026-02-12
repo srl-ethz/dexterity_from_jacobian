@@ -129,7 +129,7 @@ def check_finger_contact():
     check if each finger is in contact with the object
     """
     finger_name_filters = ['rh_th', 'rh_ff', 'rh_mf', 'rh_rf', 'rh_lf']                                         # if the body name contains any of these strings, it belongs to a finger
-    finger_name_filters_additional = ['proximal', 'distal', 'distal']                                                   # if the body name contains any of these strings, it belongs to the parts of the finger
+    finger_name_filters_additional = ['proximal', 'middle', 'distal']                                                   # if the body name contains any of these strings, it belongs to the parts of the finger
     finger_contact_detected = np.zeros(5)
     for contact in data.contact:
         collision_body_ids = [model.geom_bodyid[geom] for geom in contact.geom]                                 # collision detection is between geoms
@@ -315,34 +315,68 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
     viewer.cam.azimuth = 120
     viewer.cam.elevation = -20
 
-    t_trail_timerange = 4.0                     # how much in the future and past to draw path
-    t_draw_future_num_points = 10               # how many points to use to draw the future path
-    # add the required number of geoms to draw the future path
+    t_path_visualization_timerange = 4.0                     # how much in the future and past to draw path
+    t_path_draw_future_num_points = 10               # how many points to use to draw the future path
+    
+    trail_len = 500                             # max number of points in pen-tip trail (circular buffer)
+    trail_stride = 5                            # record every N steps to control trail density
+    trail_positions = [None] * trail_len        # circular buffer for trail positions
+    trail_head = 0                              # current write position in circular buffer
+    trail_count = 0                             # number of valid positions in buffer
+    trail_step_counter = 0
+    
+    # add the required number of geoms to draw the future path + permanent trail
     scene = viewer.user_scn
-    scene.ngeom += t_draw_future_num_points
+    future_geom_start = scene.ngeom
+    scene.ngeom += t_path_draw_future_num_points + trail_len
 
     while viewer.is_running():
         t = data.time
-        for i in range(t_draw_future_num_points):
-            t_ = t + (t_trail_timerange/2 - t_trail_timerange * i / t_draw_future_num_points)       # calculates the times at which to draw points, from t - t_trail_timerange/2 to t + t_trail_timerange/2
+        trail_step_counter += 1
+        
+        # Record pen-tip position for permanent trail (circular buffer)
+        if trail_step_counter % trail_stride == 0:
+            trail_positions[trail_head] = data.xpos[object_id].copy()
+            trail_head = (trail_head + 1) % trail_len
+            trail_count = min(trail_count + 1, trail_len)
+        
+        # Draw path visualization (red and blue)
+        for i in range(t_path_draw_future_num_points):
+            t_ = t + (t_path_visualization_timerange/2 - t_path_visualization_timerange * i / t_path_draw_future_num_points)
             pos, _ = path(t_)
-            rgba = np.array([0.0, 0.0, 1.0, 1.0 - i / t_draw_future_num_points])                    # fade transparancy from white (future) to fully transparent (past)
-
+            rgba = np.array([0.0, 0.0, 1.0, 1.0 - i / t_path_draw_future_num_points])
             # make current point red and fully opaque
-            if i == t_draw_future_num_points//2:
+            if i == t_path_draw_future_num_points//2:
                 rgba[:] = [1, 0, 0, 1]  
-            
-            # draw a sphere at the calculated position with the calculated color, using the geoms we added to the scene
-            mujoco.mjv_initGeom(scene.geoms[scene.ngeom-1-i],
+        
+            mujoco.mjv_initGeom(scene.geoms[future_geom_start + i],
                 mujoco.mjtGeom.mjGEOM_SPHERE,
-                np.array([0.0005, 0, 0]),            # size
-                pos,                                # position
-                np.eye(3).flatten(),                # rotation
-                rgba,                               # colour
+                np.array([0.0005, 0, 0]),
+                pos,
+                np.eye(3).flatten(),
+                rgba,
+            )
+        
+        # Draw permanent pen-tip trail (black)
+        for i in range(trail_count):
+            # Calculate index in circular buffer (oldest to newest)
+            idx = (trail_head - trail_count + i) % trail_len
+            pos = trail_positions[idx]
+            if pos is None:
+                continue
+            rgba = np.array([0.0, 0.0, 0.0, 1.0])  # solid black
+            
+            mujoco.mjv_initGeom(scene.geoms[future_geom_start + t_path_draw_future_num_points + i],
+                mujoco.mjtGeom.mjGEOM_SPHERE,
+                np.array([0.0007, 0, 0]),
+                pos,
+                np.eye(3).flatten(),
+                rgba,
             )
         
         # update the simulation
         mujoco.mj_step(model, data)
         viewer.sync()
+        
 #====================================================================================================================
 #endregion
