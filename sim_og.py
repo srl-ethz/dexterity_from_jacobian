@@ -120,6 +120,10 @@ def check_finger_contact():
                 if finger_name_filter in other_body_name:
                     finger_contact_detected[i] = 1
                     break
+
+    t = data.time
+    if abs(t % 1) < 1e-6:
+        print(f"{finger_contact_detected=}")
     # print(f"{finger_contact_detected=}")
     return finger_contact_detected
 

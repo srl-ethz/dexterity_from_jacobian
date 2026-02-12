@@ -332,5 +332,7 @@
     <position name="rh_A_LFJ3" joint="rh_LFJ3" class="proximal"/>
     <position name="rh_A_LFJ0" tendon="rh_LFJ0" class="middle_distal"/>
   </actuator>
+
+<!-- joints are defined as default joint types, i.e. hinges-->
   
 </mujoco>

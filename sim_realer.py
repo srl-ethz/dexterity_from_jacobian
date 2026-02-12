@@ -8,7 +8,7 @@ run the simulation using the estimated Jacobian based controller
 
 #region <Mujoco Setup>
 #=MUJOCO SETUP===================================================================================================================
-model_path = "shadow_hand/scene_pen.xml" 
+model_path = "shadow_hand/scene_pen_realer.xml" 
 model = mujoco.MjModel.from_xml_path(model_path)    # static state of the system (static model parameters like geometry, joints, acutators, hierarchy, etc.)
 data = mujoco.MjData(model)                         # dynamic state of the system (joint positions, velocities, forces, contacts, etc.)
 mujoco.mj_resetDataKeyframe(model, data, 0)         # Reset the state to keyframe 0 (keyframe is named snapshot of state stored in xml, keyframe zero is the first one)
@@ -17,12 +17,6 @@ print(f"Model nq: {model.nq}")  # Should be 31
 print(f"Keyframe qpos length: {len(model.key_qpos[0])}")  # Should also be 31
 
 # Keyframe 0 (copied from the XML)
-# init_ctrl = [0, 0,                                  # wrist actuators
-#              0.24, 1.0, 0, 0.5, 0.3,                # thumb actuators
-#              -0.1, 0.4, 2.2,                           # forefinger actuators
-#              0, 1.0, 2.0,                           # middle finger actuators   
-#              0, 1.0, 3.14,                          # ring finger actuators
-#              0, 0, 1.0, 3.14]                       # little finger actuators
 init_ctrl = [0, 0,                                  # wrist actuators
              0.24, 1.0, 0, 0.5, 0.3,                # thumb actuators
              -0.1, 0.4, 2.2,                           # forefinger actuators
@@ -97,12 +91,6 @@ print(f"{object_id=}\n{object_dof_ids=}\n{object_qpos_ids=}")
 pen_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "pen")
 assert pen_id != -1, "Pen not found"
 
-#region <Ball Task>
-# get the indices to access the ghost object (just to show the target pose)
-# ghost_object_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "object_ghost")
-# assert ghost_object_id != -1, "Ghost object not found"
-#endregion
-
 # recompute data and then use it to set the initial pose of the object
 mujoco.mj_forward(model, data)
 body_init_pose = data.qpos[object_qpos_ids].copy()
@@ -122,7 +110,7 @@ p = np.ones(actuator_num) * 1e-1        # covariance of the estimated J -> how u
 
 c_filtered = 1.0
 finger_counter = np.zeros(5)           # counts how many consecutive steps each finger has been not in contact with the object, used for contact detection with some filtering to avoid flickering when the contact is lost for a few steps due to noise or other reasons
-
+counter = 0
 """
 the covariance is used for weighing the update step (used for each column of J, which corresponds to an actuator, so it's a vector of length actuator_num)
 technically this is a vector of variances for each actuator, but since we assume the noise is uncorrelated between actuators, the covariance matrix is diagonal and can be represented as a vector of variances.
@@ -141,8 +129,7 @@ def check_finger_contact():
     check if each finger is in contact with the object
     """
     finger_name_filters = ['rh_th', 'rh_ff', 'rh_mf', 'rh_rf', 'rh_lf']                                         # if the body name contains any of these strings, it belongs to a finger
-    
-    #check the contact list in data to see if any of the contacts involve the pen and a finger
+    finger_name_filters_additional = ['proximal', 'distal', 'distal']                                                   # if the body name contains any of these strings, it belongs to the parts of the finger
     finger_contact_detected = np.zeros(5)
     for contact in data.contact:
         collision_body_ids = [model.geom_bodyid[geom] for geom in contact.geom]                                 # collision detection is between geoms
@@ -151,79 +138,19 @@ def check_finger_contact():
             other_body_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, other_body_id)
             for i, finger_name_filter in enumerate(finger_name_filters):
                 if finger_name_filter in other_body_name:
-                    finger_contact_detected[i] = 1
-                    break
-    t = data.time
-    if abs(t % 1) < 1e-6:
+                    for additional_filter in finger_name_filters_additional:
+                        if additional_filter in other_body_name:
+                            finger_contact_detected[i] = 1
+                            break
+
+    global counter
+    counter += 1
+    if counter % 500 == 0:
         print(f"{finger_contact_detected=}")
+        if counter % 500 == 0:
+            counter = 0
 
     return finger_contact_detected
-#endregion
-
-#region <Ball Rotation Task>
-#=BALL ROTATION TASK===================================================================================================================
-# def compute_task_space_command():
-#     """
-#     compute the task space command that will bring the system closer to task space goal
-#     it is supposed to be the desired velocity in the task space
-#     """
-#     # the target should slowly draw a circle
-
-#     # phase sets the speed of drawing
-#     phase = data.time * 3
-
-#     # the target position is a circle centered at the initial position of the object, with radius 0.02, and the z coordinate is slightly lower than the initial position
-#     body_target_pos[:] = body_init_pose[:3] + 0.02 * np.array([np.sin(phase), np.cos(1.4*phase), np.cos(1.3*phase)*0.2])
-#     body_target_pos[2] -= 0.02
-
-#     # move the mocap object to the target position for visualization
-#     data.mocap_pos[:] = body_target_pos
-#     body_pos = data.xpos[object_id]
-    
-#     # scale the position error  with gain 8 to get the desired velocity
-#     task_space_vel = (body_target_pos - body_pos) * 8
-#     return task_space_vel
-
-# def compute_task_space_vel():
-#     """
-#     return the velocity of task
-#     """
-#     return data.qvel[object_dof_ids[:3]]
-#====================================================================================================================
-#endregion
-
-#region <Cube Rotation Task>
-#=CUBE ROTATION TASK===================================================================================================================
-# def compute_task_space_command_cube():
-#     """
-#     compute command to rotate the cube towards target orientation
-#     """
-#     quat_current = data.xquat[object_id]
-#     quat_target = data.xquat[ghost_object_id]
-#     pos_current = data.xpos[object_id]
-#     pos_target = data.xpos[ghost_object_id]
-#     rot_diff = np.zeros(3)
-#     mujoco.mju_subQuat(rot_diff, quat_target, quat_current)
-#     pos_diff = pos_target - pos_current
-
-#     data.mocap_quat[:] = quat_target
-#     data.mocap_pos[:] = body_init_pose[:3] + np.array([0., 0., -0.04])
-
-#     if np.linalg.norm(rot_diff) < 0.1:
-#         print("Target orientation reached")
-#         # generate new target orientation
-#         quat_target = np.random.rand(4)
-#         quat_target /= np.linalg.norm(quat_target)
-#         data.mocap_quat[:] = quat_target
-    
-#     return np.concatenate((pos_diff * 8, rot_diff * 1))
-
-# def compute_task_space_vel_cube():
-#     """
-#     compute rotational velocity of the cube
-#     """
-#     return data.qvel[object_dof_ids]
-#====================================================================================================================
 #endregion
 
 #region <Pen Task>
@@ -234,12 +161,6 @@ def path(t):
     """
     r = 0.005                                   # radius
     offset = np.array([0.09, -0.35, -0.068])    # offset to move the center of the path to a desired location (relative to the initial position of the object)
-
-    # lemniscate/figure-8 path
-    # x = r * (np.cos(t) / (1 + np.sin(t)**2))
-    # y = r * (np.sin(t) * np.cos(t) / (1 + np.sin(t)**2))
-    # dx = r*(np.sin(t)**2 - 3)*np.sin(t)/(np.sin(t)**2 + 1)**2
-    # dy = r*(1 - 3*np.sin(t)**2)/(np.sin(t)**2 + 1)**2
 
     time_scale_factor = 0.5                    
     slower_path = time_scale_factor * t
