@@ -23,6 +23,12 @@ init_ctrl = [0, 0,                                  # wrist actuators
              0, 1.0, 2.0,                           # middle finger actuators   
              0, 1.0, 3.14,                          # ring finger actuators
              0, 0, 1.0, 3.14]                       # little finger actuators
+# init_ctrl = [0, 0, 
+#             0.24, 1.0, 0, 0.621309, 0.031448, 
+#             0, 0.636272, 
+#             1.86949, 0, 1, 
+#             2, 0, 1, 
+#             3.14, 0, 0, 1, 3.14]
 
 init_ctrl = np.array(init_ctrl)
 data.ctrl[:] = init_ctrl
@@ -147,6 +153,8 @@ def check_finger_contact():
     counter += 1
     if counter % 500 == 0:
         print(f"{finger_contact_detected=}")
+        current_body_pos = data.xpos[object_id]
+        print(f"{current_body_pos=}")
         if counter % 500 == 0:
             counter = 0
 
@@ -160,8 +168,7 @@ def path(t):
     when given a parameter t, returns the point on the path at t and the time derivative (i.e. velocity at that point)
     """
     r = 0.005                                   # radius
-    offset = np.array([0.09, -0.35, -0.068])    # offset to move the center of the path to a desired location (relative to the initial position of the object)
-
+    # offset = np.array([0.09, -0.35, -0.068])    # offset to move the center of the path to a desired location (relative to the initial position of the object)
     time_scale_factor = 0.5                    
     slower_path = time_scale_factor * t
 
@@ -171,7 +178,10 @@ def path(t):
     dx = -r * time_scale_factor * np.sin(slower_path)
     dy = r * time_scale_factor * np.cos(slower_path)
 
-    return np.array([x, y, 0]) + offset, np.array([dx, dy, 0])
+    pen_tip_init_pos = data.xpos[object_id] + np.array([0, 0, -0.0005]) 
+    start_offset = np.array([0.005, 0, 0])
+    path_center = pen_tip_init_pos + start_offset
+    return np.array([x, y, 0]) + path_center, np.array([dx, dy, 0])
 
 def compute_task_space_command_pen():
     t = data.time
@@ -310,6 +320,8 @@ def control_cb(model, data):
 mujoco.set_mjcb_control(control_cb)
 
 with mujoco.viewer.launch_passive(model, data) as viewer:
+# with mujoco.viewer.launch(model, data) as viewer:
+
 
     viewer.cam.distance = 1
     viewer.cam.azimuth = 120

@@ -149,7 +149,7 @@
                   <inertial mass="0.013" pos="0 0 0.0130769" quat="1 0 0 1" diaginertia="1.28092e-06 1.12092e-06 5.3e-07"/>
                   <joint name="rh_FFJ1" class="middle_distal"/>
                   <geom class="plastic_visual" mesh="f_distal_pst"/>
-                  <geom class="plastic_collision" type="mesh" mesh="f_distal_pst"/>
+                  <geom class="plastic_collision" type="mesh" mesh="f_distal_pst" solref="0.02 1" solimp="0.9 0.95 0.001 0.1 1"/>
                 </body>
               </body>
             </body>
@@ -177,7 +177,7 @@
                   <inertial mass="0.013" pos="0 0 0.0130769" quat="1 0 0 1" diaginertia="1.28092e-06 1.12092e-06 5.3e-07"/>
                   <joint name="rh_MFJ1" class="middle_distal"/>
                   <geom class="plastic_visual" mesh="f_distal_pst"/>
-                  <geom class="plastic_collision" type="mesh" mesh="f_distal_pst"/>
+                  <geom class="plastic_collision" type="mesh" mesh="f_distal_pst" solref="0.02 1" solimp="0.9 0.95 0.001 0.1 1"/>
                 </body>
               </body>
             </body>
@@ -206,7 +206,7 @@
                     diaginertia="1.28092e-06 1.12092e-06 5.3e-07"/>
                   <joint name="rh_RFJ1" class="middle_distal"/>
                   <geom class="plastic_visual" mesh="f_distal_pst"/>
-                  <geom class="plastic_collision" type="mesh" mesh="f_distal_pst"/>
+                  <geom class="plastic_collision" type="mesh" mesh="f_distal_pst" solref="0.02 1" solimp="0.9 0.95 0.001 0.1 1"/>
                 </body>
               </body>
             </body>
@@ -240,7 +240,7 @@
                     <inertial mass="0.013" pos="0 0 0.0130769" quat="1 0 0 1" diaginertia="1.28092e-06 1.12092e-06 5.3e-07"/>
                     <joint name="rh_LFJ1" class="middle_distal"/>
                     <geom class="plastic_visual" mesh="f_distal_pst"/>
-                    <geom class="plastic_collision" type="mesh" mesh="f_distal_pst"/>
+                    <geom class="plastic_collision" type="mesh" mesh="f_distal_pst" solref="0.02 1" solimp="0.9 0.95 0.001 0.1 1"/>
                   </body>
                 </body>
               </body>
@@ -274,7 +274,7 @@
                     <inertial mass="0.017" pos="0 0 0.0145588" quat="1 0 0 1" diaginertia="2.37794e-06 2.27794e-06 1e-06"/>
                     <joint name="rh_THJ1" class="thdistal"/>
                     <geom class="plastic_visual" mesh="th_distal_pst"/>
-                    <geom class="plastic_collision" type="mesh" mesh="th_distal_pst"/>
+                    <geom class="plastic_collision" type="mesh" mesh="th_distal_pst" solref="0.02 1" solimp="0.9 0.95 0.001 0.1 1"/>
                   </body>
                 </body>
               </body>
