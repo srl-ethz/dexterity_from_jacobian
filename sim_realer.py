@@ -16,19 +16,20 @@ mujoco.mj_resetDataKeyframe(model, data, 0)         # Reset the state to keyfram
 print(f"Model nq: {model.nq}")  # Should be 31
 print(f"Keyframe qpos length: {len(model.key_qpos[0])}")  # Should also be 31
 
-# Keyframe 0 (copied from the XML)
-init_ctrl = [0, 0,                                  # wrist actuators
-             0.24, 1.0, 0, 0.5, 0.3,                # thumb actuators
-             -0.1, 0.4, 2.2,                           # forefinger actuators
-             0, 1.0, 2.0,                           # middle finger actuators   
-             0, 1.0, 3.14,                          # ring finger actuators
-             0, 0, 1.0, 3.14]                       # little finger actuators
-# init_ctrl = [0, 0, 
-#             0.24, 1.0, 0, 0.621309, 0.031448, 
-#             0, 0.636272, 
-#             1.86949, 0, 1, 
-#             2, 0, 1, 
-#             3.14, 0, 0, 1, 3.14]
+# # Keyframe 0 (copied from the XML)
+# init_ctrl = [0, 0,                                  # wrist actuators
+#              0.24, 1.0, 0, 0.5, 0.3,                # thumb actuators
+#              0., 0.4, 2.2,                           # forefinger actuators
+#              0, 1.0, 2.0,                           # middle finger actuators   
+#              0, 1.0, 3.14,                          # ring finger actuators
+#              0, 0, 1.0, 3.14]                       # little finger actuators
+
+init_ctrl = [0, 0, 
+         0.80619, 0.80652, 0.002094, 0, 0.590452, 
+         -0.073311, 0.4, 2.2, 
+         -0.024437, 0.737076, 1.91662, 
+         0, 1, 3.14, 
+         0, 0, 1, 3.14]
 
 init_ctrl = np.array(init_ctrl)
 data.ctrl[:] = init_ctrl
@@ -117,6 +118,8 @@ p = np.ones(actuator_num) * 1e-1        # covariance of the estimated J -> how u
 c_filtered = 1.0
 finger_counter = np.zeros(5)           # counts how many consecutive steps each finger has been not in contact with the object, used for contact detection with some filtering to avoid flickering when the contact is lost for a few steps due to noise or other reasons
 counter = 0
+path_center = np.zeros(3)
+object_radius = 0.001
 """
 the covariance is used for weighing the update step (used for each column of J, which corresponds to an actuator, so it's a vector of length actuator_num)
 technically this is a vector of variances for each actuator, but since we assume the noise is uncorrelated between actuators, the covariance matrix is diagonal and can be represented as a vector of variances.
@@ -135,7 +138,7 @@ def check_finger_contact():
     check if each finger is in contact with the object
     """
     finger_name_filters = ['rh_th', 'rh_ff', 'rh_mf', 'rh_rf', 'rh_lf']                                         # if the body name contains any of these strings, it belongs to a finger
-    finger_name_filters_additional = ['proximal', 'middle', 'distal']                                                   # if the body name contains any of these strings, it belongs to the parts of the finger
+    finger_name_filters_additional = ['middle', 'distal']                                                   # if the body name contains any of these strings, it belongs to the parts of the finger
     finger_contact_detected = np.zeros(5)
     for contact in data.contact:
         collision_body_ids = [model.geom_bodyid[geom] for geom in contact.geom]                                 # collision detection is between geoms
@@ -172,15 +175,24 @@ def path(t):
     time_scale_factor = 0.5                    
     slower_path = time_scale_factor * t
 
+    global object_radius
+
     # circular path
     x = r * np.cos(slower_path)
     y = r * np.sin(slower_path)
     dx = -r * time_scale_factor * np.sin(slower_path)
     dy = r * time_scale_factor * np.cos(slower_path)
 
-    pen_tip_init_pos = data.xpos[object_id] + np.array([0, 0, -0.0005]) 
-    start_offset = np.array([0.005, 0, 0])
-    path_center = pen_tip_init_pos + start_offset
+    t = data.time
+    global path_center
+    if t < 2.0:
+        # pen_tip_init_pos = data.xpos[object_id] + np.array([0, 0, -0.0005]) 
+        # start_offset = np.array([0.005, 0, 0])
+        # path_center = pen_tip_init_pos + start_offset
+        pen_tip_init_pos = data.xpos[object_id] + np.array([0, 0, -object_radius]) 
+        start_offset = np.array([0, 0, 0])
+        path_center = pen_tip_init_pos + start_offset
+
     return np.array([x, y, 0]) + path_center, np.array([dx, dy, 0])
 
 def compute_task_space_command_pen():
@@ -216,7 +228,7 @@ def control_cb(model, data):
             else:
                 finger_contacts_filtered[k] = 1
     
-    finger_contacts_filtered = finger_contacts
+    # finger_contacts_filtered = finger_contacts
 
 
     contacts = sum(finger_contacts_filtered)
@@ -301,7 +313,7 @@ def control_cb(model, data):
     delta_q = np.linalg.inv(actuator_affecting_object_selectionmatrix.T@J_slice.T@J_slice@actuator_affecting_object_selectionmatrix + eps*np.eye(actuator_num)) @\
               (actuator_affecting_object_selectionmatrix.T@J_slice.T @ task_space_vel_desired_adjusted + eps_adjusted * ctrl_0) * dt
     
-    # delta_q = 0 * delta_q
+    delta_q = 0 * delta_q
 
     if np.max(np.abs(delta_q)) > 0.1:
         print(f"{delta_q=}")
@@ -336,6 +348,8 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
     trail_head = 0                              # current write position in circular buffer
     trail_count = 0                             # number of valid positions in buffer
     trail_step_counter = 0
+
+
     
     # add the required number of geoms to draw the future path + permanent trail
     scene = viewer.user_scn
@@ -345,6 +359,9 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
     while viewer.is_running():
         t = data.time
         trail_step_counter += 1
+
+        # saved_pen_qpos = data.qpos[-7:].copy()
+        # print(f"{saved_pen_qpos=}")
         
         # Record pen-tip position for permanent trail (circular buffer)
         if trail_step_counter % trail_stride == 0:
