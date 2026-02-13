@@ -120,6 +120,15 @@ finger_counter = np.zeros(5)           # counts how many consecutive steps each 
 counter = 0
 path_center = np.zeros(3)
 object_radius = 0.001
+
+
+testing = False
+r = 0.005    # 0.005 gives nice cirlces but they arent flat, so does 0.004 but 0.004 has also given nice flat circles in some runs (with keyframe 6 - see notes 12-2)
+time_scale_factor = 0.5                    
+following_time_limit = 0.5
+
+
+
 """
 the covariance is used for weighing the update step (used for each column of J, which corresponds to an actuator, so it's a vector of length actuator_num)
 technically this is a vector of variances for each actuator, but since we assume the noise is uncorrelated between actuators, the covariance matrix is diagonal and can be represented as a vector of variances.
@@ -170,9 +179,13 @@ def path(t):
     """
     when given a parameter t, returns the point on the path at t and the time derivative (i.e. velocity at that point)
     """
-    r = 0.005                                   # radius
+
+    global r
+    # r = 0.005                                   # radius
     # offset = np.array([0.09, -0.35, -0.068])    # offset to move the center of the path to a desired location (relative to the initial position of the object)
-    time_scale_factor = 0.5                    
+    
+    global time_scale_factor
+    # time_scale_factor = 0.5                    
     slower_path = time_scale_factor * t
 
     global object_radius
@@ -185,7 +198,9 @@ def path(t):
 
     t = data.time
     global path_center
-    if t < 0.5:
+    global following_time_limit
+    # if t < 0.05:
+    if t < following_time_limit:
         # pen_tip_init_pos = data.xpos[object_id] + np.array([0, 0, -0.0005]) 
         # start_offset = np.array([0.005, 0, 0])
         # path_center = pen_tip_init_pos + start_offset
@@ -315,7 +330,8 @@ def control_cb(model, data):
     delta_q = np.linalg.inv(actuator_affecting_object_selectionmatrix.T@J_slice.T@J_slice@actuator_affecting_object_selectionmatrix + eps*np.eye(actuator_num)) @\
               (actuator_affecting_object_selectionmatrix.T@J_slice.T @ task_space_vel_desired_adjusted + eps_adjusted * ctrl_0) * dt
     
-    # delta_q = 0 * delta_q
+    if testing:
+        delta_q = 0 * delta_q
 
     if np.max(np.abs(delta_q)) > 0.1:
         print(f"{delta_q=}")
@@ -344,7 +360,7 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
     t_path_visualization_timerange = 4.0                     # how much in the future and past to draw path
     t_path_draw_future_num_points = 10               # how many points to use to draw the future path
     
-    trail_len = 500                             # max number of points in pen-tip trail (circular buffer)
+    trail_len = 1000                             # max number of points in pen-tip trail (circular buffer)
     trail_stride = 5                            # record every N steps to control trail density
     trail_positions = [None] * trail_len        # circular buffer for trail positions
     trail_head = 0                              # current write position in circular buffer
@@ -395,7 +411,7 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
             pos = trail_positions[idx]
             if pos is None:
                 continue
-            rgba = np.array([0.0, 0.0, 0.0, 1.0])  # solid black
+            rgba = np.array([1.0, 1.0, 1.0, 1.0])  # solid white
             
             mujoco.mjv_initGeom(scene.geoms[future_geom_start + t_path_draw_future_num_points + i],
                 mujoco.mjtGeom.mjGEOM_SPHERE,

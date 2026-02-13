@@ -68,6 +68,15 @@
          -0.073311 0.4 2.2 
          -0.024437 0.737076 1.91662 
          0 1 3.14 
+         0 0 1 3.14"/>
+    <!-- used to be -0.005/-0.009/-0.012 in z axis that is also the only relevant axis for pen depth-->
+    <key name="steep pencil 3 - lower grip with special settings"
+         qpos="-0.0555154 0.0465425 -0.121463 0.378792 0.527068 1.57197 0.0450222 0.765184 0.898006 1.02522 -0.00467276 1.00137 1.56452 1.57102 0.00777023 -0.00485538 1.00067 1.56471 1.57109 0.712061 0.842355 0.0374649 -0.0312792 0.571986 0.0495597 -0.345795 -0.012 0.652924 -0.28533 0.102293 0.694128"
+         ctrl="0 0 
+         0.80619 0.80652 0.002094 0 0.590452 
+         -0.073311 0.4 2.2 
+         -0.024437 0.737076 1.91662 
+         0 1 3.14 
          0 0 1 3.14"
 />
   </keyframe>
@@ -80,18 +89,33 @@
     <geom name="floor" pos="0 0 -0.1" size="0 0 0.05" type="plane" material="groundplane"/>
     
     <body name="pen" pos="0 0 0" ><!-- quat="0 0 0 0" -->
-      <freejoint/>
+    <!-- the following is for the main grip -->
+      <!-- <freejoint/>
       <inertial pos="0 0 -0.04" mass="0.05" diaginertia="0.0001 0.0001 0.0001"/>
       <geom type="capsule" size="0.007 0.065" priority="1" friction="1.2 0.01 0.003" contype="5" conaffinity="5"/> 
       <geom type="capsule" size="0.004 0.0075" pos="0 0 -0.0725" friction="1.2 0.01 0.003" contype="3" conaffinity="3"/>
       <body name="object" pos="0 0 -0.084"> 
         <geom type="sphere" size="0.001" mass="0.00" rgba="1 0 0 1" friction="0.1 0.0 0.0" contype="5" conaffinity="5"/>
       </body>
+    </body> -->
+    <!-- the following is for the lower grip-->
+      <freejoint/>
+      <inertial pos="0 0 -0.04" mass="0.05" diaginertia="0.0001 0.0001 0.0001"/>
+      <geom type="capsule" size="0.007 0.065" priority="1" friction="1.5 0.01 0.003" contype="5" conaffinity="5"/> 
+      <geom type="capsule" size="0.004 0.0075" pos="0 0 -0.0725" friction="1.5 0.01 0.003" contype="3" conaffinity="3"/>
+      <body name="object" pos="0 0 -0.084"> 
+        <geom type="sphere" size="0.001" mass="0.00" rgba="1 0 0 1" friction="0.1 0.0 0.0" contype="5" conaffinity="5"/>
+      </body>
     </body>
 
-    <body name="paper" pos="0.1 -0.35 -0.076">
+    <!-- the following is for the main grip -->
+    <!-- <body name="paper" pos="0.1 -0.35 -0.076">
       <geom type="box" size="0.1 0.1 0.0001" mass="0" rgba="1 1 0 0.8" friction="0.1 0 0" contype="5" conaffinity="5" solref="0.005 1" solimp="0.99 0.99 0.001 0.5 2" />
-    </body> 
+    </body>  -->
+    <!-- the following is for the lower grip-->
+    <body name="paper" pos="0.1 -0.35 -0.09">
+      <geom type="box" size="0.1 0.1 0.0001" mass="0" rgba="1 1 0 0.8" friction="0.1 0 0" contype="5" conaffinity="5" solref="0.005 1" solimp="0.99 0.99 0.001 0.5 2" />
+    </body>  
 
   </worldbody>
 
