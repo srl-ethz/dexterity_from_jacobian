@@ -40,7 +40,7 @@ data.ctrl[:] = init_ctrl
 #=SHADOW HAND SETUP===================================================================================================================
 # get the indices to access the robot's state (params for writing task with no wrist)
 
-actuators_enabled = np.arange(2, model.nu)      # disable the first two actuators (wrist), else actuators_enabled = np.arange(model.nu) to enable all actuators 
+actuators_enabled = np.arange(0, model.nu)      # disable the first two actuators (wrist), else actuators_enabled = np.arange(model.nu) to enable all actuators 
 actuator_num = len(actuators_enabled)
 eps = 0.005                                     # how much we weigh the going back to init pose term without the wrist actuators, else eps = 0.002
 
@@ -185,12 +185,12 @@ def path(t):
 
     t = data.time
     global path_center
-    if t < 2.0:
+    if t < 0.5:
         # pen_tip_init_pos = data.xpos[object_id] + np.array([0, 0, -0.0005]) 
         # start_offset = np.array([0.005, 0, 0])
         # path_center = pen_tip_init_pos + start_offset
         pen_tip_init_pos = data.xpos[object_id] + np.array([0, 0, -object_radius]) 
-        start_offset = np.array([0, 0, 0])
+        start_offset = np.array([0, r, 0])
         path_center = pen_tip_init_pos + start_offset
 
     return np.array([x, y, 0]) + path_center, np.array([dx, dy, 0])
@@ -238,6 +238,8 @@ def control_cb(model, data):
 
     # compute which actuators currently affect the object (the finger that the actuator belongs to is in contact with the object)
     actuator_affecting_object_ids = []
+    actuator_affecting_object_ids.append(0)
+    actuator_affecting_object_ids.append(1)
     for i in range(actuator_num):
         # go through each actuator, check if the associated finger is in contact with the object
         if finger_contacts_filtered[int(actuator2finger[i])]:
@@ -313,7 +315,7 @@ def control_cb(model, data):
     delta_q = np.linalg.inv(actuator_affecting_object_selectionmatrix.T@J_slice.T@J_slice@actuator_affecting_object_selectionmatrix + eps*np.eye(actuator_num)) @\
               (actuator_affecting_object_selectionmatrix.T@J_slice.T @ task_space_vel_desired_adjusted + eps_adjusted * ctrl_0) * dt
     
-    delta_q = 0 * delta_q
+    # delta_q = 0 * delta_q
 
     if np.max(np.abs(delta_q)) > 0.1:
         print(f"{delta_q=}")
