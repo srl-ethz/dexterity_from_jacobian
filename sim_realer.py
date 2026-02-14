@@ -1,6 +1,7 @@
 import mujoco
 from mujoco import viewer
 import numpy as np
+from enum import Enum
 
 """
 run the simulation using the estimated Jacobian based controller
@@ -14,10 +15,20 @@ position_gain = 9.0                      # gain for the position error term in t
 # Path tracking
 r = 0.005                               # path radius
 time_scale_factor = 0.5                 # speed of path          
-following_time_limit = 1              # time that path center follows moving pen tip (what worked best so far is 0.05, 0.5 (main one) 0.8, 1)
+following_time_limit = 0.5              # time that path center follows moving pen tip (what worked best so far is 0.05, 0.5 (main one) 0.8, 1)
 
 # Scene setup
 testing = False                         # if true we give zero command - mode used to tune grip manually
+
+# Path Shapes
+class PathShape(Enum):
+    CIRCLE = 0
+    FIGURE8 = 1
+    SQUARE = 3
+    TRIANGLE = 4
+    LETTER_A = 5                    # works but very ugly
+path_shape = PathShape.LETTER_E
+
 
 # Global variables for initialization
 path_center = np.zeros(3)               # initial path center
@@ -53,8 +64,6 @@ def reset():
     finger_counter[:] = 0
 
     init_ctrl[:] = data.ctrl.copy()    # update the initial control command to the new keyframe's control command
-
-
 
 #====================================================================================================================
 #endregion
@@ -177,6 +186,47 @@ def check_finger_contact():
 
 #region <Pen Task>
 #=PEN TASK===================================================================================================================
+def piecewise_path(vertices, slowed_down_time, time_scale_factor):
+    """
+    Evaluate position and velocity on a closed piecewise linear path.
+    vertices: list of (x, y) tuples defining the closed polygon
+    Returns: x, y, dx_dt, dy_dt
+    """
+    n = len(vertices)       # number of corners
+    seg_lengths = []        # segment lengths
+    # calculate segment lengths between all vertices starting with vertex 0 and 1 and ending with vertex n-1 and 0 to close the loop
+    for i in range(n):
+        d = np.sqrt((vertices[(i+1)%n][0] - vertices[i][0])**2 +
+                    (vertices[(i+1)%n][1] - vertices[i][1])**2)
+        seg_lengths.append(d) 
+    total_len = sum(seg_lengths)    # total shape perimeter
+
+    # map slowed_down_time (period 2pi this is just so it matches the circle from ealier and how we used slowed down time there) to distance along perimeter, 
+    # i.e. find the equivalent distance along the perimeter for the given slowed_down_time parameter
+    dist = (slowed_down_time % (2*np.pi)) / (2*np.pi) * total_len
+    if dist < 0:
+        dist += total_len
+
+    # find which segment and interpolate
+    acc = 0             # accumulated length
+    for i in range(n):
+        # if the following is true we are on the ith segment, so we can calculate the position and velocity by interpolating between vertex i and vertex i+1
+        if acc + seg_lengths[i] > dist + 1e-12:         
+            frac = (dist - acc) / seg_lengths[i]            # fraction of segment length we have covered
+            # position along segment i according to the fraction we have covered
+            x = vertices[i][0] + frac * (vertices[(i+1)%n][0] - vertices[i][0])
+            y = vertices[i][1] + frac * (vertices[(i+1)%n][1] - vertices[i][1])
+            # velocity: d(pos)/dt = direction * (total_len / 2pi) * time_scale_factor
+            dir_x = (vertices[(i+1)%n][0] - vertices[i][0]) / seg_lengths[i]
+            dir_y = (vertices[(i+1)%n][1] - vertices[i][1]) / seg_lengths[i]
+            speed = total_len / (2*np.pi) * time_scale_factor         # dont forget to scale the speed with the time_scale_factor
+            return x, y, dir_x * speed, dir_y * speed
+        # if acc + seg_lengths[i] is not greater than dist, move to the next segment and update the accumulated length
+        acc += seg_lengths[i]
+
+    # fallback to first vertex (safety feature)
+    return vertices[0][0], vertices[0][1], 0.0, 0.0
+
 def path(t):
     """
     when given a parameter t, returns the point on the path at t and the time derivative (i.e. velocity at that point)
@@ -187,30 +237,53 @@ def path(t):
     global object_radius
     global path_center
     global following_time_limit
+    global path_shape
 
     time = data.time
 
-    # if time < following_time_limit:
-    #     slowed_down_time = 0
+    slowed_down_time = time_scale_factor * (t - following_time_limit)
 
-    slowed_down_time = time_scale_factor * t #- following_time_limit
+    if path_shape == PathShape.CIRCLE:
+        #this is some additional finetuning for the circle, but not absolutely necessary by any means, we could just have slowed_down_time = time_scale_factor * (t - following_time_limit)
+        if time < following_time_limit:
+            slowed_down_time = -np.pi / 2                                           # path point sits at pen tip during settling
+        else:
+            slowed_down_time = time_scale_factor * (t - following_time_limit) - np.pi / 2   # start at pen tip, then move along circle
 
-    # # # circular path
-    x = r * np.cos(slowed_down_time)
-    y = r * np.sin(slowed_down_time)
-    dx = -r * time_scale_factor * np.sin(slowed_down_time)
-    dy = r * time_scale_factor * np.cos(slowed_down_time)
+        # # # circular path
+        x = r * np.cos(slowed_down_time)
+        y = r * np.sin(slowed_down_time)
+        dx = -r * time_scale_factor * np.sin(slowed_down_time)
+        dy = r * time_scale_factor * np.cos(slowed_down_time)
 
-    # figure 8 path
-    # x = r * (np.cos(slowed_down_time) / (1 + np.sin(slowed_down_time)**2))
-    # y = r * (np.sin(slowed_down_time) * np.cos(slowed_down_time) / (1 + np.sin(slowed_down_time)**2))
-    # dx = r*(np.sin(slowed_down_time)**2 - 3)*np.sin(slowed_down_time)/(np.sin(slowed_down_time)**2 + 1)**2
-    # dy = r*(1 - 3*np.sin(slowed_down_time)**2)/(np.sin(slowed_down_time)**2 + 1)**2
+    elif path_shape == PathShape.FIGURE8:
+
+        # figure 8 path
+        r = 0.01
+        x = r * (np.cos(slowed_down_time) / (1 + np.sin(slowed_down_time)**2))
+        y = r * (np.sin(slowed_down_time) * np.cos(slowed_down_time) / (1 + np.sin(slowed_down_time)**2))
+        dx = r*(np.sin(slowed_down_time)**2 - 3)*np.sin(slowed_down_time)/(np.sin(slowed_down_time)**2 + 1)**2
+        dy = r*(1 - 3*np.sin(slowed_down_time)**2)/(np.sin(slowed_down_time)**2 + 1)**2
+
+    elif path_shape == PathShape.SQUARE:
+        # square with side 2r, starting from bottom-center going right
+        verts = [(0, -r), (r, -r), (r, r), (-r, r), (-r, -r)]
+        x, y, dx, dy = piecewise_path(verts, slowed_down_time, time_scale_factor)
+
+    elif path_shape == PathShape.TRIANGLE:
+        # equilateral triangle inscribed in circle of radius r, starting from bottom
+        verts = [(0, -r), (r*np.sqrt(3)/2, r/2), (-r*np.sqrt(3)/2, r/2)]
+        x, y, dx, dy = piecewise_path(verts, slowed_down_time, time_scale_factor)
+
+    elif path_shape == PathShape.LETTER_A:
+        # letter A: left leg up, back to middle, crossbar right, right leg up, right leg down, return
+        verts = [(-r, -r), (-r, r), (-r, 0), (r, 0), (r, r), (r, -r), (-r, -r)]
+        x, y, dx, dy = piecewise_path(verts, slowed_down_time, time_scale_factor)
 
     if time < following_time_limit:
-        pen_tip_init_pos = data.xpos[object_id] + np.array([0, 0, -object_radius]) 
-        start_offset = np.array([0, r, 0])
-        path_center = pen_tip_init_pos + start_offset
+        pen_tip_init_pos = data.xpos[object_id] + np.array([0, 0, -object_radius])
+        # place path_center so that current (x, y) lands on pen tip
+        path_center = pen_tip_init_pos - np.array([x, y, 0])
 
     return np.array([x, y, 0]) + path_center, np.array([dx, dy, 0])
 
@@ -326,7 +399,7 @@ def control_cb(model, data):
     # while avoiding the pen trying to follow the path and the path movign together with it, which increases the speed
     if time < following_time_limit:
         # task_space_vel_desired_adjusted = np.zeros(3) 
-        task_space_vel_desired_adjusted = np.random.randn(3) * 1e-2     # add a bit of noise to the command to encourage exploration and learning of the Jacobian even when the pen is not moving much, which is important for learning the correct Jacobian entries for the actuators that affect the pen but are not yet in contact with the pen at the beginning
+        task_space_vel_desired_adjusted = np.random.randn(3) * 5 * 1e-2     # add a bit of noise to the command to encourage exploration and learning of the Jacobian even when the pen is not moving much, which is important for learning the correct Jacobian entries for the actuators that affect the pen but are not yet in contact with the pen at the beginning
     else:
         task_space_vel_desired = compute_task_space_command_pen()
         task_space_vel_desired_adjusted = c_filtered * task_space_vel_desired       # scale the desired task space velocity with the contact confidence, so that when the confidence is low, the controller tries iess hard to achieve the desired task space velocity
@@ -372,17 +445,19 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
     t_path_visualization_timerange = 4.0             # how much in the future and past to draw path
     t_path_draw_future_num_points = 10               # how many points to use to draw the future path
     
-    trail_len = 1000                            # max number of points in pen-tip trail (circular buffer)
+    trail_len = 2000                            # max number of points in pen-tip trail (circular buffer)
     trail_stride = 5                            # record every N steps to control trail density
     trail_positions = [None] * trail_len        # circular buffer for trail positions
     trail_head = 0                              # current write position in circular buffer
     trail_count = 0                             # number of valid positions in buffer
     trail_step_counter = 0                      # counts steps to determine when to record trail position
 
-    # add the required number of geoms to draw the future path + permanent trail
+    trail_copy_offset = np.array([0.0, 0.05, 0.0])    # offset for the shifted trail copy
+
+    # add the required number of geoms to draw the future path + permanent trail + shifted copy
     scene = viewer.user_scn
     future_geom_start = scene.ngeom
-    scene.ngeom += t_path_draw_future_num_points + trail_len
+    scene.ngeom += t_path_draw_future_num_points + trail_len + trail_len
 
     # keep track of time to identify resets
     prev_time = data.time
@@ -400,15 +475,16 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
             trail_head = 0
             trail_count = 0
             trail_step_counter = 0
-            # hide old trail geoms that are still in the scene
+            # hide old trail geoms (both original and shifted copy) that are still in the scene
             for i in range(trail_len):
-                mujoco.mjv_initGeom(scene.geoms[future_geom_start + t_path_draw_future_num_points + i],
-                    mujoco.mjtGeom.mjGEOM_SPHERE,
-                    np.zeros(3),
-                    np.zeros(3),
-                    np.eye(3).flatten(),
-                    np.array([0.0, 0.0, 0.0, 0.0]),
-                )
+                for offset in [0, trail_len]:  # original + shifted copy
+                    mujoco.mjv_initGeom(scene.geoms[future_geom_start + t_path_draw_future_num_points + offset + i],
+                        mujoco.mjtGeom.mjGEOM_SPHERE,
+                        np.zeros(3),
+                        np.zeros(3),
+                        np.eye(3).flatten(),
+                        np.array([0.0, 0.0, 0.0, 0.0]),
+                    )
             print("Reset detected!")
         prev_time = t
         
@@ -430,13 +506,13 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
             )
 
         # Record pen-tip position for permanent trail (circular buffer)
-        if t > 2* following_time_limit:
+        if t > 5* following_time_limit:
             if trail_step_counter % trail_stride == 0:
                 trail_positions[trail_head] = data.xpos[object_id].copy()
                 trail_head = (trail_head + 1) % trail_len
                 trail_count = min(trail_count + 1, trail_len)
         
-            # Draw permanent pen-tip trail (white)
+            # Draw permanent and shifted pen-tip trails (white)
             for i in range(trail_count):
                 # Calculate index in circular buffer (oldest to newest)
                 idx = (trail_head - trail_count + i) % trail_len
@@ -449,6 +525,14 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
                     mujoco.mjtGeom.mjGEOM_SPHERE,
                     np.array([0.0007, 0, 0]),
                     pos,
+                    np.eye(3).flatten(),
+                    rgba,
+                )
+                # Draw shifted copy of trail
+                mujoco.mjv_initGeom(scene.geoms[future_geom_start + t_path_draw_future_num_points + trail_len + i],
+                    mujoco.mjtGeom.mjGEOM_SPHERE,
+                    np.array([0.0007, 0, 0]),
+                    pos + trail_copy_offset,
                     np.eye(3).flatten(),
                     rgba,
                 )
