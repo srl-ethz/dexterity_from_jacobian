@@ -6,13 +6,10 @@ it needs to follow the path quicker
 and better finger gating, namely it needs to not just remove the finger from the pen, i.e. maybe lock it so that the finger stays in contact with the 
 pen above all else also include the wrist to see if that helps increadibly small area of writig, which is due to the fingers not being able to do big motions
 
-especially the flat pencil grip, which would be the most stable i think, isnt currently feasible due to no range of motino, that might change with wrist activity
-
-
 potential idea: use high level controller to improve grip, i.e. maximize grip quality metric, while not affecting pen tip position, and use the wrist actuators to move pen tip to follow the path 
 
 
-another thing i need to to is to lower the ben in the grip, that should also increase the area it can use to draw, plus that will be necessary to use this in reality where we cant draw on air
+
 
 
 
@@ -28,6 +25,7 @@ following_time_limit = 0.5
 -0.012
 friction 1.5
 lower paper 
+saved under pretty good circles commit
 
 with r = 0.005, time_scale_factor = 0.5 and t < 0.05> both with 1.5 friction and paper at low position and pen position at z axis -0.012:
 (i think these settings gave me nice and flat circles one or twice)

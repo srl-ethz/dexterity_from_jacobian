@@ -1,10 +1,8 @@
 things to do: 
 
-change material (in xml) of pen and paper to prohibit penetration       -> i think this is already done
 change to contact force monitoring instead of binary contact detection
 track pen drifting
 
-\improve initial grasp -> middle finger doesnt actually hold pen
 Ways to reduce the constant adjusting:
 
 Use hysteresis on contact
@@ -18,4 +16,3 @@ You already do some of this. Increase it further so the solution doesn’t jump.
 Cap how much delta_q can change per step
 You already clip, but you can make it stricter so the grasp doesn’t “fidget.”
 
-action
