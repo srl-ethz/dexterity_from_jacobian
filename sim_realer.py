@@ -17,11 +17,12 @@ eps = 0.005                             # how much we weigh the going back to in
 r = 0.005                               # path radius
 time_scale_factor = 0.5                 # speed of path          
 following_time_limit = 0.5              # time that path center follows moving pen tip (what worked best so far is 0.05, 0.5 (main one) 0.8, 1)
+grid_period = 10.0                      # period of the grid path, i.e. how long it takes in SCALED TIME to do one full loop of the grid path, i.e. if we scale time by 0.5 and the period is 10.0 that means it takes 20 seconds !!!! HOWEVER THIS IS IN SIM TIME WHICH IS SLOWER THAN REAL TIME DUE TO OVERHEAD SO IN REALITY ITS LONGER !!!!
 
 # Path grid setup
-segment_length = 0.005                    # length of segments in the grid for writing letters,
-deactivate_keyboard_input = False          # if true, we ignore keyboard input and just follow the shape defined by path_shape, this is useful for testing the controller without the additional complexity of following the grid path
-object_init_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]   # initial pose of the object, we will set this to the actual initial pose of the object in the sim after loading the model and resetting to the keyframe, we need this to define the grid for writing letters relative to the initial pose of the object
+segment_length = 0.005                     # length of segments in the grid for writing letters,
+deactivate_keyboard_input = False          # if true, we ignore keyboard input and just follow the shape defined by path_shape
+object_init_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]   # initial pose of the object
 
 # Scene setup
 testing = False                         # if true we give zero command - mode used to tune grip manually
@@ -302,8 +303,11 @@ def piecewise_path(vertices, adjusted_time, time_scale_factor):
     vertices: list of (x, y) tuples defining the closed polygon
     Returns: x, y, dx_dt, dy_dt
     """
+    global grid_period
+    
     n = len(vertices)       # number of corners
     seg_lengths = []        # segment lengths
+    
     # calculate segment lengths between all vertices starting with vertex 0 and 1 and ending with vertex n-1 and 0 to close the loop
     for i in range(n):
         d = np.sqrt((vertices[(i+1)%n][0] - vertices[i][0])**2 +
@@ -311,10 +315,9 @@ def piecewise_path(vertices, adjusted_time, time_scale_factor):
         seg_lengths.append(d) 
     total_len = sum(seg_lengths)    # total shape perimeter
 
-    # map adjusted_time (period 2pi this is just so it matches the circle from ealier and how we used slowed down time there) to distance along perimeter, 
+    # map adjusted_time (period 10.0) to distance along perimeter, 
     # i.e. find the equivalent distance along the perimeter for the given adjusted_time parameter
-    # dist = (adjusted_time % (2*np.pi)) / (2*np.pi) * total_len
-    dist = (adjusted_time % (10.0)) / (10.0) * total_len
+    dist = (adjusted_time % (grid_period)) / (grid_period) * total_len
     if dist < 0:
         dist += total_len
 
@@ -330,8 +333,7 @@ def piecewise_path(vertices, adjusted_time, time_scale_factor):
             # velocity: d(pos)/dt = direction * (total_len / 2pi) * time_scale_factor
             dir_x = (vertices[(i+1)%n][0] - vertices[i][0]) / seg_lengths[i]
             dir_y = (vertices[(i+1)%n][1] - vertices[i][1]) / seg_lengths[i]
-            # speed = total_len / (2*np.pi) * time_scale_factor         # dont forget to scale the speed with the time_scale_factor
-            speed = total_len / (10.0) * time_scale_factor         # dont forget to scale the speed with the time_scale_factor
+            speed = total_len / (grid_period) * time_scale_factor         # dont forget to scale the speed with the time_scale_factor
             return x, y, dir_x * speed, dir_y * speed
         # if acc + seg_lengths[i] is not greater than dist, move to the next segment and update the accumulated length
         acc += seg_lengths[i]
@@ -342,24 +344,17 @@ def piecewise_path(vertices, adjusted_time, time_scale_factor):
 def grid_definition(letter=None):
     """
     Define a 3x3 grid of vertices for writing letters
-    we call this after a delay that is smaller than following_time_limit, so that we have a path once we start following, 
-    but that we wait for the pentip to settle into its initial pose before we define the grid
+    And then a dictionary of letter paths that define the order in which we visit the vertices for each letter
     """
+
     global segment_length
     global counter2
     global object_init_pose
 
-    # center_center = (x0, y0) = (object_init_pose[0], object_init_pose[1])
+    # positions of the vertices (the flipped order is due to how the hand is positioned in space)
     center_center = (x0, y0) = (0.0, 0.0)
     center_left = (x0 - segment_length, y0)
     center_right = (x0 + segment_length, y0)
-    # top_center = (x0, y0 + segment_length)
-    # top_left = (x0 - segment_length, y0 + segment_length)
-    # top_right = (x0 + segment_length, y0 + segment_length)
-    # bottom_center = (x0, y0 - segment_length)
-    # bottom_left = (x0 - segment_length, y0 - segment_length)
-    # bottom_right = (x0 + segment_length, y0 - segment_length)
-
     bottom_center = (x0, y0 + segment_length)
     bottom_left = (x0 - segment_length, y0 + segment_length)
     bottom_right = (x0 + segment_length, y0 + segment_length)
@@ -367,6 +362,7 @@ def grid_definition(letter=None):
     top_left = (x0 - segment_length, y0 - segment_length)
     top_right = (x0 + segment_length, y0 - segment_length)
 
+    # Default layout and fallback path if letter not LETTER_PATHS
     vertices = [
         (top_left), (top_center), (top_right),
         (center_left), (center_center), (center_right),
@@ -381,12 +377,11 @@ def grid_definition(letter=None):
 
     vertices = list(LETTER_PATHS.get(letter, vertices))     # if letter is not in LETTER_PATHS, use the full grid as default
 
-    counter2 += 1
-    if counter2 % 500 == 0:
-        # print(f"Defined vertices for letter {letter}: {vertices}")
-        # print(f"Initial object pose for grid definition: {object_init_pose}")
-        counter2 = 0
-
+    # counter2 += 1
+    # if counter2 % 500 == 0:
+    #     print(f"Defined vertices for letter {letter}: {vertices}")
+    #     print(f"Initial object pose for grid definition: {object_init_pose}")
+    #     counter2 = 0
 
     return vertices
 
@@ -414,34 +409,37 @@ def path(t):
         controller.inputs = []
         controller.active_letter = None
 
-    # Only modify controller state (pop inputs, transition letters) when called from the control loop,
+    # only modify controller state when called from the control loop,
     # not from visualization calls which use different t values just to draw the path
-    is_control_call = (abs(t - data.time) < 1e-3)    # if t is within a small tolerance of data.time, it's a control call
+    is_control_call = (abs(t - data.time) < 1e-3)   
 
     if is_control_call:
         if controller.inputs or controller.active_letter is not None:     # if we have inputs to process or we are currently processing a letter, we want to follow the grid path, otherwise we just follow the shape defined by path_shape
             if controller.active_letter is None:
-                # print(f"Current Pen Pos = {data.xpos[object_id]}")
-                # print(f"object_init_pose = {object_init_pose}")
-                controller.letter_anchor = data.xpos[object_id].copy()     # we set the anchor to the current pen position, so that the grid moves with the pen, this is important for when we start following the path, so that the path is already under the pen tip and we dont have to wait for it to move there
+
+                controller.letter_anchor = data.xpos[object_id].copy()     # we set the anchor to the current pen position, so that the path is defined around the current pentip position
                 controller.t_start = time
                 controller.active_letter = controller.inputs.pop(0)
-                print(f"Starting to follow letter {controller.active_letter} remaining inputs: {controller.inputs}")
                 controller.path_flag = False
+                print(f"Starting to follow letter {controller.active_letter} remaining inputs: {controller.inputs}")
+
             elif controller.active_letter is not None:
-                # if time - controller.t_start > following_time_limit + 2*np.pi / time_scale_factor:   # after one full loop of the circle, we can move on to the next letter, this is just to give some time to settle on the new path before we start following it
-                if (time - controller.t_start) > (following_time_limit + 10.0 / time_scale_factor):   # after one full loop of the circle, we can move on to the next letter, this is just to give some time to settle on the new path before we start following it
-                    print(f"Finished following letter {controller.active_letter}")
+                if (time - controller.t_start) > (following_time_limit + grid_period / time_scale_factor):   # after one full loop of the circle, we can move on to the next letter, this is just to give some time to settle on the new path before we start following it
+                    
                     controller.letter_finished = True
                     controller.active_letter = None
+                    print(f"Finished following letter {controller.active_letter}")
+
                     if controller.inputs:
                         controller.letter_anchor = data.xpos[object_id].copy()     # update the anchor to the current pen position, so that the grid moves with the pen, this is important for when we start following the path, so that the path is already under the pen tip and we dont have to wait for it to move there
                         controller.t_start = time
                         controller.active_letter = controller.inputs.pop(0)
+                        controller.path_flag = False
                         print(f"Starting to follow letter {controller.active_letter} remaining inputs: {controller.inputs}")
+                    
                     else:
-                        controller.path_flag = True
                         controller.letter_finished = True
+                        controller.path_flag = True
                         print(f"No more letters to follow, switching to shape following")
         else: 
             controller.path_flag = True
@@ -498,8 +496,7 @@ def path(t):
     
     if time < following_time_limit:
         pen_tip_init_pos = data.xpos[object_id] + np.array([0, 0, -object_radius])
-        # place path_center so that current (x, y) lands on pen tip
-        path_center = pen_tip_init_pos - np.array([x, y, 0])
+        path_center = pen_tip_init_pos - np.array([x, y, 0])                # place path_center so that current (x, y) lands on pen tip
 
     return np.array([x, y, 0]) + path_center, np.array([dx, dy, 0])
 
