@@ -17,26 +17,55 @@ r = 0.005                               # path radius
 time_scale_factor = 0.5                 # speed of path          
 following_time_limit = 0.5              # time that path center follows moving pen tip (what worked best so far is 0.05, 0.5 (main one) 0.8, 1)
 
+# Path grid setup
+segment_length = 0.005                    # length of segments in the grid for writing letters,
+deactivate_keyboard_input = False          # if true, we ignore keyboard input and just follow the shape defined by path_shape, this is useful for testing the controller without the additional complexity of following the grid path
+object_init_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]   # initial pose of the object, we will set this to the actual initial pose of the object in the sim after loading the model and resetting to the keyframe, we need this to define the grid for writing letters relative to the initial pose of the object
+
 # Scene setup
 testing = False                         # if true we give zero command - mode used to tune grip manually
 
 # Path Shapes
 class PathShape(Enum):
-    CIRCLE = 0
-    FIGURE8 = 1
+    REST = 0
+    CIRCLE = 1
+    FIGURE8 = 2
     SQUARE = 3
     TRIANGLE = 4
-    LETTER_A = 5                    # works but very ugly
-path_shape = PathShape.LETTER_E
-
+    BOOTLEG_LETTER_A = 5                    # works but very ugly
+path_shape = PathShape.REST
 
 # Global variables for initialization
 path_center = np.zeros(3)               # initial path center
 c_filtered = 1.0                        # initial value for c_filtered
 object_radius = 0.001                   # pentip radius copied from xml
 counter = 0                             # counts up to 500 for reduced printing output
+counter2 = 0                            # counts up to 500 for reduced printing output for keyboard input vertices
 finger_counter = np.zeros(5)            # counts how many consecutive steps each finger has been not in contact with the object
 
+class SimulationController:
+    def __init__(self):
+        self.inputs = []
+        self.start_path = False
+        self.active_letter = None
+        self.t_start = 0.0
+        self.path_flag = False
+        
+    def keyboard_callback(self, keycode):
+        """Called whenever a key is pressed during simulation"""
+        if keycode == 256:  # Enter key
+            print(f"Start pathtracking with inputs: {self.inputs}")
+            self.start_path = True
+        elif keycode >= 48 and keycode <= 57:  # Number keys 0-9
+            self.inputs.append(keycode - 48)
+        elif keycode == 65 or keycode == 97:  # A or a
+            self.inputs.append('A')
+        elif keycode == 66 or keycode == 98:  # B or b
+            self.inputs.append('B')
+        elif keycode == 67 or keycode == 99:  # C or c
+            self.inputs.append('C')
+
+controller = SimulationController()
 
 #region <Mujoco Setup>
 #=MUJOCO SETUP===================================================================================================================
@@ -62,6 +91,10 @@ def reset():
     path_center[:] = 0.0
     counter = 0
     finger_counter[:] = 0
+    controller.active_letter = None
+    controller.inputs = []
+    controller.t_start = 0.0
+    controller.path_flag = False
 
     init_ctrl[:] = data.ctrl.copy()    # update the initial control command to the new keyframe's control command
 
@@ -129,8 +162,8 @@ assert pen_id != -1, "Pen not found"
 
 # recompute data and then use it to set the initial pose of the object
 mujoco.mj_forward(model, data)     # <- might not be necessary here
-body_init_pose = data.qpos[object_qpos_ids].copy()
-print(f"{body_init_pose=}")
+object_init_pose = data.qpos[object_qpos_ids].copy()
+# print(f"{object_init_pose=}")
 #====================================================================================================================
 #endregion
 
@@ -227,6 +260,51 @@ def piecewise_path(vertices, slowed_down_time, time_scale_factor):
     # fallback to first vertex (safety feature)
     return vertices[0][0], vertices[0][1], 0.0, 0.0
 
+def grid_definition(letter=None):
+    """
+    Define a 3x3 grid of vertices for writing letters
+    we call this after a delay that is smaller than following_time_limit, so that we have a path once we start following, 
+    but that we wait for the pentip to settle into its initial pose before we define the grid
+    """
+    global segment_length
+    global counter2
+    global object_init_pose
+
+    # center_center = (x0, y0) = (object_init_pose[0], object_init_pose[1])
+    center_center = (x0, y0) = (0.0, 0.0)
+    center_left = (x0 - segment_length, y0)
+    center_right = (x0 + segment_length, y0)
+    top_center = (x0, y0 + segment_length)
+    top_left = (x0 - segment_length, y0 + segment_length)
+    top_right = (x0 + segment_length, y0 + segment_length)
+    bottom_center = (x0, y0 - segment_length)
+    bottom_left = (x0 - segment_length, y0 - segment_length)
+    bottom_right = (x0 + segment_length, y0 - segment_length)
+
+    vertices = [
+        (top_left), (top_center), (top_right),
+        (center_left), (center_center), (center_right),
+        (bottom_left), (bottom_center), (bottom_right)
+    ]
+
+    LETTER_PATHS = {
+        'A': [center_center, bottom_center, top_center, top_left, bottom_left, center_left, center_center],
+        'B': [center_center, bottom_center, bottom_left, top_left, top_center, center_center, center_left, center_center],
+        'C': [center_center, bottom_center, bottom_right, bottom_center, top_center, top_right, top_center, center_center]
+    }
+
+    vertices = list(LETTER_PATHS.get(letter, vertices))     # if letter is not in LETTER_PATHS, use the full grid as default
+
+    counter2 += 1
+    if counter2 % 500 == 0:
+        print(f"Defined vertices for letter {letter}: {vertices}")
+        print(f"Initial object pose for grid definition: {object_init_pose}")
+        counter2 = 0
+
+
+    return vertices
+
+
 def path(t):
     """
     when given a parameter t, returns the point on the path at t and the time derivative (i.e. velocity at that point)
@@ -238,48 +316,80 @@ def path(t):
     global path_center
     global following_time_limit
     global path_shape
+    global deactivate_keyboard_input
 
     time = data.time
-
     slowed_down_time = time_scale_factor * (t - following_time_limit)
 
-    if path_shape == PathShape.CIRCLE:
-        #this is some additional finetuning for the circle, but not absolutely necessary by any means, we could just have slowed_down_time = time_scale_factor * (t - following_time_limit)
-        if time < following_time_limit:
-            slowed_down_time = -np.pi / 2                                           # path point sits at pen tip during settling
-        else:
-            slowed_down_time = time_scale_factor * (t - following_time_limit) - np.pi / 2   # start at pen tip, then move along circle
+    # define x, y, dx, dy for safety
+    x, y, dx, dy = 0.0, 0.0, 0.0, 0.0
 
-        # # # circular path
-        x = r * np.cos(slowed_down_time)
-        y = r * np.sin(slowed_down_time)
-        dx = -r * time_scale_factor * np.sin(slowed_down_time)
-        dy = r * time_scale_factor * np.cos(slowed_down_time)
+    if deactivate_keyboard_input == True:
+        controller.inputs = []
+        controller.active_letter = None
 
-    elif path_shape == PathShape.FIGURE8:
+    if controller.inputs or controller.active_letter is not None:     # if we have inputs to process or we are currently processing a letter, we want to follow the grid path, otherwise we just follow the shape defined by path_shape
+        if controller.active_letter is None:
+            controller.t_start = time
+            controller.active_letter = controller.inputs.pop(0)
+            controller.path_flag = False
+        elif controller.active_letter is not None:
+            if time - controller.t_start > following_time_limit + 2*np.pi / time_scale_factor:   # after one full loop of the circle, we can move on to the next letter, this is just to give some time to settle on the new path before we start following it
+                controller.active_letter = None
+                if controller.inputs:
+                    controller.t_start = time
+                    controller.active_letter = controller.inputs.pop(0)
+                else:
+                    controller.path_flag = True
 
-        # figure 8 path
-        r = 0.01
-        x = r * (np.cos(slowed_down_time) / (1 + np.sin(slowed_down_time)**2))
-        y = r * (np.sin(slowed_down_time) * np.cos(slowed_down_time) / (1 + np.sin(slowed_down_time)**2))
-        dx = r*(np.sin(slowed_down_time)**2 - 3)*np.sin(slowed_down_time)/(np.sin(slowed_down_time)**2 + 1)**2
-        dy = r*(1 - 3*np.sin(slowed_down_time)**2)/(np.sin(slowed_down_time)**2 + 1)**2
+        if not controller.path_flag:
+            vertices = grid_definition(controller.active_letter)
+            x, y, dx, dy = piecewise_path(vertices, slowed_down_time, time_scale_factor)
 
-    elif path_shape == PathShape.SQUARE:
-        # square with side 2r, starting from bottom-center going right
-        verts = [(0, -r), (r, -r), (r, r), (-r, r), (-r, -r)]
-        x, y, dx, dy = piecewise_path(verts, slowed_down_time, time_scale_factor)
+    else: 
+        controller.path_flag = True
 
-    elif path_shape == PathShape.TRIANGLE:
-        # equilateral triangle inscribed in circle of radius r, starting from bottom
-        verts = [(0, -r), (r*np.sqrt(3)/2, r/2), (-r*np.sqrt(3)/2, r/2)]
-        x, y, dx, dy = piecewise_path(verts, slowed_down_time, time_scale_factor)
+    if controller.path_flag:
+        if path_shape == PathShape.REST:
+            x, y, dx, dy = 0.0, 0.0, 0.0, 0.0
 
-    elif path_shape == PathShape.LETTER_A:
-        # letter A: left leg up, back to middle, crossbar right, right leg up, right leg down, return
-        verts = [(-r, -r), (-r, r), (-r, 0), (r, 0), (r, r), (r, -r), (-r, -r)]
-        x, y, dx, dy = piecewise_path(verts, slowed_down_time, time_scale_factor)
+        elif path_shape == PathShape.CIRCLE:
+            #this is some additional finetuning for the circle, but not absolutely necessary by any means, we could just have slowed_down_time = time_scale_factor * (t - following_time_limit)
+            if time < following_time_limit:
+                slowed_down_time = -np.pi / 2                                           # path point sits at pen tip during settling
+            else:
+                slowed_down_time = time_scale_factor * (t - following_time_limit) - np.pi / 2   # start at pen tip, then move along circle
 
+            # # # circular path
+            x = r * np.cos(slowed_down_time)
+            y = r * np.sin(slowed_down_time)
+            dx = -r * time_scale_factor * np.sin(slowed_down_time)
+            dy = r * time_scale_factor * np.cos(slowed_down_time)
+
+        elif path_shape == PathShape.FIGURE8:
+
+            # figure 8 path
+            r = 0.01
+            x = r * (np.cos(slowed_down_time) / (1 + np.sin(slowed_down_time)**2))
+            y = r * (np.sin(slowed_down_time) * np.cos(slowed_down_time) / (1 + np.sin(slowed_down_time)**2))
+            dx = r*(np.sin(slowed_down_time)**2 - 3)*np.sin(slowed_down_time)/(np.sin(slowed_down_time)**2 + 1)**2
+            dy = r*(1 - 3*np.sin(slowed_down_time)**2)/(np.sin(slowed_down_time)**2 + 1)**2
+
+        elif path_shape == PathShape.SQUARE:
+            # square with side 2r, starting from bottom-center going right
+            verts = [(0, -r), (r, -r), (r, r), (-r, r), (-r, -r)]
+            x, y, dx, dy = piecewise_path(verts, slowed_down_time, time_scale_factor)
+
+        elif path_shape == PathShape.TRIANGLE:
+            # equilateral triangle inscribed in circle of radius r, starting from bottom
+            verts = [(0, -r), (r*np.sqrt(3)/2, r/2), (-r*np.sqrt(3)/2, r/2)]
+            x, y, dx, dy = piecewise_path(verts, slowed_down_time, time_scale_factor)
+
+        elif path_shape == PathShape.BOOTLEG_LETTER_A:
+            # letter A: left leg up, back to middle, crossbar right, right leg up, right leg down, return
+            verts = [(-r, -r), (-r, r), (-r, 0), (r, 0), (r, r), (r, -r), (-r, -r)]
+            x, y, dx, dy = piecewise_path(verts, slowed_down_time, time_scale_factor)
+    
     if time < following_time_limit:
         pen_tip_init_pos = data.xpos[object_id] + np.array([0, 0, -object_radius])
         # place path_center so that current (x, y) lands on pen tip
@@ -434,9 +544,10 @@ def control_cb(model, data):
 
 #region <Mujoco Viewer Setup>
 #=MUJOCO SIM===================================================================================================================
+
 mujoco.set_mjcb_control(control_cb)
 
-with mujoco.viewer.launch_passive(model, data) as viewer:
+with mujoco.viewer.launch_passive(model, data, key_callback=controller.keyboard_callback) as viewer:
 
     viewer.cam.distance = 1
     viewer.cam.azimuth = 120
