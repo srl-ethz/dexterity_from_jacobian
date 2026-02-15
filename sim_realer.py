@@ -50,20 +50,25 @@ class SimulationController:
         self.active_letter = None
         self.t_start = 0.0
         self.path_flag = False
+        self.letter_anchor = np.zeros(3)
+        self.letter_finished = False
         
     def keyboard_callback(self, keycode):
         """Called whenever a key is pressed during simulation"""
         if keycode == 256:  # Enter key
-            print(f"Start pathtracking with inputs: {self.inputs}")
+            # print(f"Start pathtracking with inputs: {self.inputs}")
             self.start_path = True
         elif keycode >= 48 and keycode <= 57:  # Number keys 0-9
             self.inputs.append(keycode - 48)
         elif keycode == 65 or keycode == 97:  # A or a
             self.inputs.append('A')
+            print(f"Added 'A' to inputs, current inputs: {self.inputs}")
         elif keycode == 66 or keycode == 98:  # B or b
             self.inputs.append('B')
+            print(f"Added 'B' to inputs, current inputs: {self.inputs}")
         elif keycode == 67 or keycode == 99:  # C or c
             self.inputs.append('C')
+            print(f"Added 'C' to inputs, current inputs: {self.inputs}")
 
 controller = SimulationController()
 
@@ -96,6 +101,7 @@ def reset():
     controller.t_start = 0.0
     controller.path_flag = False
     object_init_pose = data.qpos[object_qpos_ids].copy()
+    controller.letter_anchor = data.xpos[object_id].copy()
 
     init_ctrl[:] = data.ctrl.copy()    # update the initial control command to the new keyframe's control command
 
@@ -121,14 +127,14 @@ for joint_name in actuated_joint_names:
     assert joint_id != -1, f"Joint {joint_name} not found"
     actuated_joint_ids.append(joint_id)
 
-print(f"{actuator_names=}\n{actuated_joint_names=}\n{actuated_joint_ids=}")
+# print(f"{actuator_names=}\n{actuated_joint_names=}\n{actuated_joint_ids=}")
 
 # creates list of start addresses in 'qvel' for joint's data
 actuated_dof_ids = [int(model.jnt_dofadr[joint_id]) for joint_id in actuated_joint_ids]
 # creates list of start addresses in 'qpos' for joint's data
 actuated_qpos_ids = [int(model.jnt_qposadr[joint_id]) for joint_id in actuated_joint_ids]
 
-print(f"{actuated_dof_ids=}\n{actuated_qpos_ids=}")
+# print(f"{actuated_dof_ids=}\n{actuated_qpos_ids=}")
 
 # find out which actuators belong to each finger
 finger_name_filters = ["_TH", "_FF", "_MF", "_RF", "_LF"]
@@ -141,7 +147,7 @@ for i in range(actuator_num):
     if (actuator2finger[i] == -1):
         print(f"Actuator {actuator_names[i]} not assigned to any finger")
 
-print(f"{actuator2finger=}")
+# print(f"{actuator2finger=}")
 #====================================================================================================================
 #endregion
 
@@ -156,7 +162,7 @@ assert object_id != -1, "Object not found"
 
 object_dof_ids = np.arange(model.body_dofadr[object_id], model.body_dofadr[object_id] + model.body_dofnum[object_id])
 object_qpos_ids = np.arange(model.body_jntadr[object_id], model.body_jntadr[object_id] + 7)                             # free object has 7 qpos (3 for position, 4 for orientation (quaternions))
-print(f"{object_id=}\n{object_dof_ids=}\n{object_qpos_ids=}")
+# print(f"{object_id=}\n{object_dof_ids=}\n{object_qpos_ids=}")
 
 pen_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "pen")
 assert pen_id != -1, "Pen not found"
@@ -209,7 +215,7 @@ def check_finger_contact():
     global counter
     counter += 1
     if counter % 500 == 0:
-        print(f"{finger_contact_detected=}")
+        # print(f"{finger_contact_detected=}")
         counter = 0
         # current_body_pos = data.xpos[object_id]
         # print(f"{current_body_pos=}")
@@ -220,7 +226,7 @@ def check_finger_contact():
 
 #region <Pen Task>
 #=PEN TASK===================================================================================================================
-def piecewise_path(vertices, slowed_down_time, time_scale_factor):
+def piecewise_path(vertices, adjusted_time, time_scale_factor):
     """
     Evaluate position and velocity on a closed piecewise linear path.
     vertices: list of (x, y) tuples defining the closed polygon
@@ -235,10 +241,10 @@ def piecewise_path(vertices, slowed_down_time, time_scale_factor):
         seg_lengths.append(d) 
     total_len = sum(seg_lengths)    # total shape perimeter
 
-    # map slowed_down_time (period 2pi this is just so it matches the circle from ealier and how we used slowed down time there) to distance along perimeter, 
-    # i.e. find the equivalent distance along the perimeter for the given slowed_down_time parameter
-    # dist = (slowed_down_time % (2*np.pi)) / (2*np.pi) * total_len
-    dist = (slowed_down_time % (10.0)) / (10.0) * total_len
+    # map adjusted_time (period 2pi this is just so it matches the circle from ealier and how we used slowed down time there) to distance along perimeter, 
+    # i.e. find the equivalent distance along the perimeter for the given adjusted_time parameter
+    # dist = (adjusted_time % (2*np.pi)) / (2*np.pi) * total_len
+    dist = (adjusted_time % (10.0)) / (10.0) * total_len
     if dist < 0:
         dist += total_len
 
@@ -277,12 +283,19 @@ def grid_definition(letter=None):
     center_center = (x0, y0) = (0.0, 0.0)
     center_left = (x0 - segment_length, y0)
     center_right = (x0 + segment_length, y0)
-    top_center = (x0, y0 + segment_length)
-    top_left = (x0 - segment_length, y0 + segment_length)
-    top_right = (x0 + segment_length, y0 + segment_length)
-    bottom_center = (x0, y0 - segment_length)
-    bottom_left = (x0 - segment_length, y0 - segment_length)
-    bottom_right = (x0 + segment_length, y0 - segment_length)
+    # top_center = (x0, y0 + segment_length)
+    # top_left = (x0 - segment_length, y0 + segment_length)
+    # top_right = (x0 + segment_length, y0 + segment_length)
+    # bottom_center = (x0, y0 - segment_length)
+    # bottom_left = (x0 - segment_length, y0 - segment_length)
+    # bottom_right = (x0 + segment_length, y0 - segment_length)
+
+    bottom_center = (x0, y0 + segment_length)
+    bottom_left = (x0 - segment_length, y0 + segment_length)
+    bottom_right = (x0 + segment_length, y0 + segment_length)
+    top_center = (x0, y0 - segment_length)
+    top_left = (x0 - segment_length, y0 - segment_length)
+    top_right = (x0 + segment_length, y0 - segment_length)
 
     vertices = [
         (top_left), (top_center), (top_right),
@@ -293,15 +306,15 @@ def grid_definition(letter=None):
     LETTER_PATHS = {
         'A': [center_center, bottom_center, top_center, top_left, bottom_left, center_left, center_center],
         'B': [center_center, bottom_center, bottom_left, top_left, top_center, center_center, center_left, center_center],
-        'C': [center_center, bottom_center, bottom_right, bottom_center, top_center, top_right, top_center, center_center]
+        'C': [center_center, bottom_center, bottom_left, bottom_center, top_center, top_left, top_center, center_center]
     }
 
     vertices = list(LETTER_PATHS.get(letter, vertices))     # if letter is not in LETTER_PATHS, use the full grid as default
 
     counter2 += 1
     if counter2 % 500 == 0:
-        print(f"Defined vertices for letter {letter}: {vertices}")
-        print(f"Initial object pose for grid definition: {object_init_pose}")
+        # print(f"Defined vertices for letter {letter}: {vertices}")
+        # print(f"Initial object pose for grid definition: {object_init_pose}")
         counter2 = 0
 
 
@@ -322,7 +335,7 @@ def path(t):
     global deactivate_keyboard_input
 
     time = data.time
-    slowed_down_time = time_scale_factor * (t - following_time_limit)
+    adjusted_time = time_scale_factor * (t - following_time_limit)
 
     # define x, y, dx, dy for safety
     x, y, dx, dy = 0.0, 0.0, 0.0, 0.0
@@ -331,70 +344,87 @@ def path(t):
         controller.inputs = []
         controller.active_letter = None
 
-    if controller.inputs or controller.active_letter is not None:     # if we have inputs to process or we are currently processing a letter, we want to follow the grid path, otherwise we just follow the shape defined by path_shape
-        if controller.active_letter is None:
-            controller.t_start = time
-            controller.active_letter = controller.inputs.pop(0)
-            controller.path_flag = False
-        elif controller.active_letter is not None:
-            # if time - controller.t_start > following_time_limit + 2*np.pi / time_scale_factor:   # after one full loop of the circle, we can move on to the next letter, this is just to give some time to settle on the new path before we start following it
-            if time - controller.t_start > following_time_limit + 10.0 / time_scale_factor:   # after one full loop of the circle, we can move on to the next letter, this is just to give some time to settle on the new path before we start following it
-                controller.active_letter = None
-                if controller.inputs:
-                    controller.t_start = time
-                    controller.active_letter = controller.inputs.pop(0)
-                else:
-                    controller.path_flag = True
+    # Only modify controller state (pop inputs, transition letters) when called from the control loop,
+    # not from visualization calls which use different t values just to draw the path
+    is_control_call = (abs(t - data.time) < 1e-3)    # if t is within a small tolerance of data.time, it's a control call
 
-        if not controller.path_flag:
-            vertices = grid_definition(controller.active_letter)
-            x, y, dx, dy = piecewise_path(vertices, slowed_down_time, time_scale_factor)
-            pen_tip_init_pos = data.xpos[object_id] + np.array([0, 0, -object_radius])
-            return np.array([x, y, 0]) + pen_tip_init_pos, np.array([dx, dy, 0])
+    if is_control_call:
+        if controller.inputs or controller.active_letter is not None:     # if we have inputs to process or we are currently processing a letter, we want to follow the grid path, otherwise we just follow the shape defined by path_shape
+            if controller.active_letter is None:
+                # print(f"Current Pen Pos = {data.xpos[object_id]}")
+                # print(f"object_init_pose = {object_init_pose}")
+                controller.letter_anchor = data.xpos[object_id].copy()     # we set the anchor to the current pen position, so that the grid moves with the pen, this is important for when we start following the path, so that the path is already under the pen tip and we dont have to wait for it to move there
+                controller.t_start = time
+                controller.active_letter = controller.inputs.pop(0)
+                print(f"Starting to follow letter {controller.active_letter} remaining inputs: {controller.inputs}")
+                controller.path_flag = False
+            elif controller.active_letter is not None:
+                # if time - controller.t_start > following_time_limit + 2*np.pi / time_scale_factor:   # after one full loop of the circle, we can move on to the next letter, this is just to give some time to settle on the new path before we start following it
+                if (time - controller.t_start) > (following_time_limit + 10.0 / time_scale_factor):   # after one full loop of the circle, we can move on to the next letter, this is just to give some time to settle on the new path before we start following it
+                    print(f"Finished following letter {controller.active_letter}")
+                    controller.letter_finished = True
+                    controller.active_letter = None
+                    if controller.inputs:
+                        controller.letter_anchor = data.xpos[object_id].copy()     # update the anchor to the current pen position, so that the grid moves with the pen, this is important for when we start following the path, so that the path is already under the pen tip and we dont have to wait for it to move there
+                        controller.t_start = time
+                        controller.active_letter = controller.inputs.pop(0)
+                        print(f"Starting to follow letter {controller.active_letter} remaining inputs: {controller.inputs}")
+                    else:
+                        controller.path_flag = True
+                        controller.letter_finished = True
+                        print(f"No more letters to follow, switching to shape following")
+        else: 
+            controller.path_flag = True
+            print("Following shape defined by path_shape since no letter inputs detected")
 
-    else: 
-        controller.path_flag = True
+    # Evaluate the letter path (read-only, safe to call from visualization too)
+    if controller.active_letter is not None and not controller.path_flag:
+        adjusted_time = time_scale_factor * (time - controller.t_start)
+        vertices = grid_definition(controller.active_letter)
+        x, y, dx, dy = piecewise_path(vertices, adjusted_time, time_scale_factor)
+        return np.array([x, y, -object_radius]) + controller.letter_anchor, np.array([dx, dy, 0])
 
     if controller.path_flag:
+        
         if path_shape == PathShape.REST:
             x, y, dx, dy = 0.0, 0.0, 0.0, 0.0
 
         elif path_shape == PathShape.CIRCLE:
-            #this is some additional finetuning for the circle, but not absolutely necessary by any means, we could just have slowed_down_time = time_scale_factor * (t - following_time_limit)
+            #this is some additional finetuning for the circle, but not absolutely necessary by any means, we could just have adjusted_time = time_scale_factor * (t - following_time_limit)
             if time < following_time_limit:
-                slowed_down_time = -np.pi / 2                                           # path point sits at pen tip during settling
+                adjusted_time = -np.pi / 2                                           # path point sits at pen tip during settling
             else:
-                slowed_down_time = time_scale_factor * (t - following_time_limit) - np.pi / 2   # start at pen tip, then move along circle
+                adjusted_time = time_scale_factor * (t - following_time_limit) - np.pi / 2   # start at pen tip, then move along circle
 
             # # # circular path
-            x = r * np.cos(slowed_down_time)
-            y = r * np.sin(slowed_down_time)
-            dx = -r * time_scale_factor * np.sin(slowed_down_time)
-            dy = r * time_scale_factor * np.cos(slowed_down_time)
+            x = r * np.cos(adjusted_time)
+            y = r * np.sin(adjusted_time)
+            dx = -r * time_scale_factor * np.sin(adjusted_time)
+            dy = r * time_scale_factor * np.cos(adjusted_time)
 
         elif path_shape == PathShape.FIGURE8:
 
             # figure 8 path
             r = 0.01
-            x = r * (np.cos(slowed_down_time) / (1 + np.sin(slowed_down_time)**2))
-            y = r * (np.sin(slowed_down_time) * np.cos(slowed_down_time) / (1 + np.sin(slowed_down_time)**2))
-            dx = r*(np.sin(slowed_down_time)**2 - 3)*np.sin(slowed_down_time)/(np.sin(slowed_down_time)**2 + 1)**2
-            dy = r*(1 - 3*np.sin(slowed_down_time)**2)/(np.sin(slowed_down_time)**2 + 1)**2
+            x = r * (np.cos(adjusted_time) / (1 + np.sin(adjusted_time)**2))
+            y = r * (np.sin(adjusted_time) * np.cos(adjusted_time) / (1 + np.sin(adjusted_time)**2))
+            dx = r*(np.sin(adjusted_time)**2 - 3)*np.sin(adjusted_time)/(np.sin(adjusted_time)**2 + 1)**2
+            dy = r*(1 - 3*np.sin(adjusted_time)**2)/(np.sin(adjusted_time)**2 + 1)**2
 
         elif path_shape == PathShape.SQUARE:
             # square with side 2r, starting from bottom-center going right
             verts = [(0, -r), (r, -r), (r, r), (-r, r), (-r, -r)]
-            x, y, dx, dy = piecewise_path(verts, slowed_down_time, time_scale_factor)
+            x, y, dx, dy = piecewise_path(verts, adjusted_time, time_scale_factor)
 
         elif path_shape == PathShape.TRIANGLE:
             # equilateral triangle inscribed in circle of radius r, starting from bottom
             verts = [(0, -r), (r*np.sqrt(3)/2, r/2), (-r*np.sqrt(3)/2, r/2)]
-            x, y, dx, dy = piecewise_path(verts, slowed_down_time, time_scale_factor)
+            x, y, dx, dy = piecewise_path(verts, adjusted_time, time_scale_factor)
 
         elif path_shape == PathShape.BOOTLEG_LETTER_A:
             # letter A: left leg up, back to middle, crossbar right, right leg up, right leg down, return
             verts = [(-r, -r), (-r, r), (-r, 0), (r, 0), (r, r), (r, -r), (-r, -r)]
-            x, y, dx, dy = piecewise_path(verts, slowed_down_time, time_scale_factor)
+            x, y, dx, dy = piecewise_path(verts, adjusted_time, time_scale_factor)
     
     if time < following_time_limit:
         pen_tip_init_pos = data.xpos[object_id] + np.array([0, 0, -object_radius])
@@ -584,6 +614,23 @@ with mujoco.viewer.launch_passive(model, data, key_callback=controller.keyboard_
         t = data.time
         trail_step_counter += 1
 
+        # Clear trail when a letter finishes
+        if controller.letter_finished:
+            controller.letter_finished = False
+            trail_positions = [None] * trail_len
+            trail_head = 0
+            trail_count = 0
+            trail_step_counter = 0
+            for i in range(trail_len):
+                for offset in [0, trail_len]:
+                    mujoco.mjv_initGeom(scene.geoms[future_geom_start + t_path_draw_future_num_points + offset + i],
+                        mujoco.mjtGeom.mjGEOM_SPHERE,
+                        np.zeros(3),
+                        np.zeros(3),
+                        np.eye(3).flatten(),
+                        np.array([0.0, 0.0, 0.0, 0.0]),
+                    )
+
         if t < prev_time: 
             # reset everything if we detect a reset in the simulation (time goes backwards)
             reset()    
@@ -602,7 +649,7 @@ with mujoco.viewer.launch_passive(model, data, key_callback=controller.keyboard_
                         np.eye(3).flatten(),
                         np.array([0.0, 0.0, 0.0, 0.0]),
                     )
-            print("Reset detected!")
+            # print("Reset detected!")
         prev_time = t
         
         # Draw path visualization (red and blue)
@@ -640,7 +687,7 @@ with mujoco.viewer.launch_passive(model, data, key_callback=controller.keyboard_
                 
                 mujoco.mjv_initGeom(scene.geoms[future_geom_start + t_path_draw_future_num_points + i],
                     mujoco.mjtGeom.mjGEOM_SPHERE,
-                    np.array([0.0007, 0, 0]),
+                    np.array([0.0002, 0, 0]),
                     pos,
                     np.eye(3).flatten(),
                     rgba,
@@ -648,7 +695,7 @@ with mujoco.viewer.launch_passive(model, data, key_callback=controller.keyboard_
                 # Draw shifted copy of trail
                 mujoco.mjv_initGeom(scene.geoms[future_geom_start + t_path_draw_future_num_points + trail_len + i],
                     mujoco.mjtGeom.mjGEOM_SPHERE,
-                    np.array([0.0007, 0, 0]),
+                    np.array([0.0002, 0, 0]),
                     pos + trail_copy_offset,
                     np.eye(3).flatten(),
                     rgba,
