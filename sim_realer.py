@@ -10,7 +10,8 @@ run the simulation using the estimated Jacobian based controller
 # Global variables for adjusting
 
 # Task space command
-position_gain = 9.0                      # gain for the position error term in the task space velocity command
+position_gain = 9.0                     # gain for the position error term in the task space velocity command
+eps = 0.005                             # how much we weigh the going back to init pose term in the task space velocity command, (tradeoff between preventing drifting when no contact and worse path following when contact)
 
 # Path tracking
 r = 0.005                               # path radius
@@ -32,7 +33,7 @@ class PathShape(Enum):
     FIGURE8 = 2
     SQUARE = 3
     TRIANGLE = 4
-    BOOTLEG_LETTER_A = 5                    # works but very ugly
+    BOOTLEG_LETTER_A = 5                # works but ugly
 path_shape = PathShape.REST
 
 # Global variables for initialization
@@ -69,7 +70,76 @@ class SimulationController:
         elif keycode == 67 or keycode == 99:  # C or c
             self.inputs.append('C')
             print(f"Added 'C' to inputs, current inputs: {self.inputs}")
-
+        elif keycode == 68 or keycode == 100:  # D or d
+            self.inputs.append('D')
+            print(f"Added 'D' to inputs, current inputs: {self.inputs}")
+        elif keycode == 69 or keycode == 101:  # E or e
+            self.inputs.append('E')
+            print(f"Added 'E' to inputs, current inputs: {self.inputs}")
+        elif keycode == 70 or keycode == 102:  # F or f
+            self.inputs.append('F')
+            print(f"Added 'F' to inputs, current inputs: {self.inputs}")
+        elif keycode == 71 or keycode == 103:  # G or g
+            self.inputs.append('G')
+            print(f"Added 'G' to inputs, current inputs: {self.inputs}")
+        elif keycode == 72 or keycode == 104:  # H or h
+            self.inputs.append('H')
+            print(f"Added 'H' to inputs, current inputs: {self.inputs}")
+        elif keycode == 73 or keycode == 105:  # I or i
+            self.inputs.append('I')
+            print(f"Added 'I' to inputs, current inputs: {self.inputs}")
+        elif keycode == 74 or keycode == 106:  # J or j
+            self.inputs.append('J')
+            print(f"Added 'J' to inputs, current inputs: {self.inputs}")
+        elif keycode == 75 or keycode == 107:  # K or k
+            self.inputs.append('K')
+            print(f"Added 'K' to inputs, current inputs: {self.inputs}")
+        elif keycode == 76 or keycode == 108:  # L or l
+            self.inputs.append('L')
+            print(f"Added 'L' to inputs, current inputs: {self.inputs}")
+        elif keycode == 77 or keycode == 109:  # M or m
+            self.inputs.append('M')
+            print(f"Added 'M' to inputs, current inputs: {self.inputs}")
+        elif keycode == 78 or keycode == 110:  # N or n
+            self.inputs.append('N')
+            print(f"Added 'N' to inputs, current inputs: {self.inputs}")
+        elif keycode == 79 or keycode == 111:  # O or o
+            self.inputs.append('O')
+            print(f"Added 'O' to inputs, current inputs: {self.inputs}")
+        elif keycode == 80 or keycode == 112:  # P or p
+            self.inputs.append('P')
+            print(f"Added 'P' to inputs, current inputs: {self.inputs}")
+        elif keycode == 81 or keycode == 113:  # Q or q
+            self.inputs.append('Q')
+            print(f"Added 'Q' to inputs, current inputs: {self.inputs}")
+        elif keycode == 82 or keycode == 114:  # R or r
+            self.inputs.append('R')
+            print(f"Added 'R' to inputs, current inputs: {self.inputs}")
+        elif keycode == 83 or keycode == 115:  # S or s
+            self.inputs.append('S')
+            print(f"Added 'S' to inputs, current inputs: {self.inputs}")
+        elif keycode == 84 or keycode == 116:  # T or t
+            self.inputs.append('T')
+            print(f"Added 'T' to inputs, current inputs: {self.inputs}")
+        elif keycode == 85 or keycode == 117:  # U or u
+            self.inputs.append('U')
+            print(f"Added 'U' to inputs, current inputs: {self.inputs}")
+        elif keycode == 86 or keycode == 118:  # V or v
+            self.inputs.append('V')
+            print(f"Added 'V' to inputs, current inputs: {self.inputs}")
+        elif keycode == 87 or keycode == 119:  # W or w
+            self.inputs.append('W')
+            print(f"Added 'W' to inputs, current inputs: {self.inputs}")
+        elif keycode == 88 or keycode == 120:  # X or x
+            self.inputs.append('X')
+            print(f"Added 'X' to inputs, current inputs: {self.inputs}")
+        elif keycode == 89 or keycode == 121:  # Y or y
+            self.inputs.append('Y')
+            print(f"Added 'Y' to inputs, current inputs: {self.inputs}")
+        elif keycode == 90 or keycode == 122:  # Z or z
+            self.inputs.append('Z')
+            print(f"Added 'Z' to inputs, current inputs: {self.inputs}")
+        
 controller = SimulationController()
 
 #region <Mujoco Setup>
@@ -112,7 +182,6 @@ def reset():
 #=SHADOW HAND SETUP===================================================================================================================
 actuators_enabled = np.arange(0, model.nu)      # enable all actuators 
 actuator_num = len(actuators_enabled)
-eps = 0.005                                     # how much we weigh the going back to init pose term
 
 actuator_names = [mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i) for i in actuators_enabled]
 
@@ -120,7 +189,7 @@ actuator_names = [mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, i) for 
 actuated_joint_names = [actuator_name.replace("_A_", "_") for actuator_name in actuator_names]
 actuated_joint_names = [jnt_name.replace("0", "1") for jnt_name in actuated_joint_names]        # actuator names with "0" actuate tendons that go through joints with "1" in their names
 
-# get the indices of the corresponding joints
+# get the indices of the corresponding actuated joints
 actuated_joint_ids = []
 for joint_name in actuated_joint_names:
     joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
@@ -144,9 +213,8 @@ for i in range(actuator_num):
         if finger_name_filter in actuator_names[i]:
             actuator2finger[i] = finger_id
             break
-    if (actuator2finger[i] == -1):
-        print(f"Actuator {actuator_names[i]} not assigned to any finger")
-
+    # if (actuator2finger[i] == -1):
+    #     print(f"Actuator {actuator_names[i]} not assigned to any finger")
 # print(f"{actuator2finger=}")
 #====================================================================================================================
 #endregion
@@ -162,6 +230,7 @@ assert object_id != -1, "Object not found"
 
 object_dof_ids = np.arange(model.body_dofadr[object_id], model.body_dofadr[object_id] + model.body_dofnum[object_id])
 object_qpos_ids = np.arange(model.body_jntadr[object_id], model.body_jntadr[object_id] + 7)                             # free object has 7 qpos (3 for position, 4 for orientation (quaternions))
+
 # print(f"{object_id=}\n{object_dof_ids=}\n{object_qpos_ids=}")
 
 pen_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "pen")
@@ -170,6 +239,7 @@ assert pen_id != -1, "Pen not found"
 # recompute data and then use it to set the initial pose of the object
 mujoco.mj_forward(model, data)     # <- might not be necessary here
 object_init_pose = data.qpos[object_qpos_ids].copy()
+
 # print(f"{object_init_pose=}")
 #====================================================================================================================
 #endregion
@@ -212,11 +282,11 @@ def check_finger_contact():
                             finger_contact_detected[i] = 1
                             break
 
-    global counter
-    counter += 1
-    if counter % 500 == 0:
-        # print(f"{finger_contact_detected=}")
-        counter = 0
+    # global counter
+    # counter += 1
+    # if counter % 500 == 0:
+    #     print(f"{finger_contact_detected=}")
+    #     counter = 0
         # current_body_pos = data.xpos[object_id]
         # print(f"{current_body_pos=}")
 
@@ -457,7 +527,11 @@ def control_cb(model, data):
     
     global finger_counter
     global c_filtered
+
     obs_noise = 1e-3                                            # observation noise variance
+    finger_contact_threshold_time = 50                          # number of consecutive steps a finger has to be not in contact before we consider it as not affecting the object
+    C_filter_weight = 0.95                                      # weight for the low pass filter on the contact state
+    eps_scaling = 0.5
     time = data.time
     dt = model.opt.timestep
 
@@ -469,13 +543,13 @@ def control_cb(model, data):
             finger_counter[k] = 0
         elif finger_contacts[k] == 0:
             finger_counter[k] += 1
-            if finger_counter[k] > 50:
+            if finger_counter[k] > finger_contact_threshold_time:
                 finger_contacts_filtered[k] = 0
             else:
                 finger_contacts_filtered[k] = 1
     contacts = sum(finger_contacts_filtered)
     c = contacts / 3.0
-    c_filtered = (0.95) * c_filtered + (0.05) * c
+    c_filtered = C_filter_weight * c_filtered + (1 - C_filter_weight) * c
 
     # compute which actuators currently affect the object (the finger that the actuator belongs to is in contact with the object)
     actuator_affecting_object_ids = []
@@ -550,10 +624,9 @@ def control_cb(model, data):
         task_space_vel_desired = compute_task_space_command_pen()
         task_space_vel_desired_adjusted = c_filtered * task_space_vel_desired       # scale the desired task space velocity with the contact confidence, so that when the confidence is low, the controller tries iess hard to achieve the desired task space velocity
 
-
     # calculate the pullback term to the initial pose, to avoid drifting too far from the initial pose 
     ctrl_0 = init_ctrl[actuators_enabled] - data.ctrl[actuators_enabled]
-    eps_adjusted = eps * (1 + 0.5 * (1 - c_filtered))                       # scale the regularization term with the contact confidence, so that when the confidence is low, we weigh more the going back to initial pose term
+    eps_adjusted = eps * (1 + eps_scaling * (1 - c_filtered))                       # scale the regularization term with the contact confidence, so that when the confidence is low, we weigh more the going back to initial pose term
 
     # Tikhonov regularization
     """
@@ -565,6 +638,7 @@ def control_cb(model, data):
     delta_q = np.linalg.inv(actuator_affecting_object_selectionmatrix.T@J_slice.T@J_slice@actuator_affecting_object_selectionmatrix + eps*np.eye(actuator_num)) @\
               (actuator_affecting_object_selectionmatrix.T@J_slice.T @ task_space_vel_desired_adjusted + eps_adjusted * ctrl_0) * dt
     
+    # if we are testing or defining grasping pose, we command zero velocity
     if testing:
         delta_q = 0 * delta_q
 
@@ -589,17 +663,17 @@ with mujoco.viewer.launch_passive(model, data, key_callback=controller.keyboard_
     viewer.cam.azimuth = 120
     viewer.cam.elevation = -20
 
-    t_path_visualization_timerange = 4.0             # how much in the future and past to draw path
-    t_path_draw_future_num_points = 10               # how many points to use to draw the future path
+    t_path_visualization_timerange = 4.0                # how much in the future and past to draw path
+    t_path_draw_future_num_points = 10                  # how many points to use to draw the future path
     
-    trail_len = 2000                            # max number of points in pen-tip trail (circular buffer)
-    trail_stride = 5                            # record every N steps to control trail density
-    trail_positions = [None] * trail_len        # circular buffer for trail positions
-    trail_head = 0                              # current write position in circular buffer
-    trail_count = 0                             # number of valid positions in buffer
-    trail_step_counter = 0                      # counts steps to determine when to record trail position
+    trail_len = 2000                                    # max number of points in pen-tip trail (circular buffer)
+    trail_stride = 5                                    # record every N steps to control trail density
+    trail_positions = [None] * trail_len                # circular buffer for trail positions
+    trail_head = 0                                      # current write position in circular buffer
+    trail_count = 0                                     # number of valid positions in buffer
+    trail_step_counter = 0                              # counts steps to determine when to record trail position
 
-    trail_copy_offset = np.array([0.0, 0.05, 0.0])    # offset for the shifted trail copy
+    trail_copy_offset = np.array([0.0, 0.05, 0.0])      # offset for the shifted trail copy
 
     # add the required number of geoms to draw the future path + permanent trail + shifted copy
     scene = viewer.user_scn
@@ -609,47 +683,54 @@ with mujoco.viewer.launch_passive(model, data, key_callback=controller.keyboard_
     # keep track of time to identify resets
     prev_time = data.time
 
+    # hide old trail geoms (both original and shifted copy) that are still in the scene
+    def clear_trail_geoms(trail_length):
+        for i in range(trail_length):
+            for offset in [0, trail_len]:  # original + shifted copy
+                mujoco.mjv_initGeom(scene.geoms[future_geom_start + t_path_draw_future_num_points + offset + i],
+                    mujoco.mjtGeom.mjGEOM_SPHERE,
+                    np.zeros(3),
+                    np.zeros(3),
+                    np.eye(3).flatten(),
+                    np.array([0.0, 0.0, 0.0, 0.0]),
+                )
+
+    def draw(position, color, size, geom_index):
+        mujoco.mjv_initGeom(scene.geoms[geom_index],
+            mujoco.mjtGeom.mjGEOM_SPHERE,
+            np.array([size, 0, 0]),
+            position,
+            np.eye(3).flatten(),
+            color,
+        )
+
     while viewer.is_running():
 
         t = data.time
         trail_step_counter += 1
 
-        # Clear trail when a letter finishes
+        # clear trail when a letter finishes
         if controller.letter_finished:
             controller.letter_finished = False
             trail_positions = [None] * trail_len
             trail_head = 0
             trail_count = 0
             trail_step_counter = 0
-            for i in range(trail_len):
-                for offset in [0, trail_len]:
-                    mujoco.mjv_initGeom(scene.geoms[future_geom_start + t_path_draw_future_num_points + offset + i],
-                        mujoco.mjtGeom.mjGEOM_SPHERE,
-                        np.zeros(3),
-                        np.zeros(3),
-                        np.eye(3).flatten(),
-                        np.array([0.0, 0.0, 0.0, 0.0]),
-                    )
-
+            clear_trail_geoms(trail_len)
+                    
+        # reset everything if we detect a reset in the simulation (time goes backwards)
         if t < prev_time: 
-            # reset everything if we detect a reset in the simulation (time goes backwards)
-            reset()    
+            reset()
+
             # clear trail
             trail_positions = [None] * trail_len
             trail_head = 0
             trail_count = 0
             trail_step_counter = 0
-            # hide old trail geoms (both original and shifted copy) that are still in the scene
-            for i in range(trail_len):
-                for offset in [0, trail_len]:  # original + shifted copy
-                    mujoco.mjv_initGeom(scene.geoms[future_geom_start + t_path_draw_future_num_points + offset + i],
-                        mujoco.mjtGeom.mjGEOM_SPHERE,
-                        np.zeros(3),
-                        np.zeros(3),
-                        np.eye(3).flatten(),
-                        np.array([0.0, 0.0, 0.0, 0.0]),
-                    )
+            clear_trail_geoms(trail_len)
             # print("Reset detected!")
+
+        # continiously update time to detect resets
         prev_time = t
         
         # Draw path visualization (red and blue)
@@ -660,14 +741,8 @@ with mujoco.viewer.launch_passive(model, data, key_callback=controller.keyboard_
             # make current point red and fully opaque
             if i == t_path_draw_future_num_points//2:
                 rgba[:] = [1, 0, 0, 1]  
-        
-            mujoco.mjv_initGeom(scene.geoms[future_geom_start + i],
-                mujoco.mjtGeom.mjGEOM_SPHERE,
-                np.array([0.0005, 0, 0]),
-                pos,
-                np.eye(3).flatten(),
-                rgba,
-            )
+
+            draw(pos, rgba, 0.0005, future_geom_start + i)
 
         # Record pen-tip position for permanent trail (circular buffer)
         if t > 5* following_time_limit:
@@ -684,23 +759,10 @@ with mujoco.viewer.launch_passive(model, data, key_callback=controller.keyboard_
                 if pos is None:
                     continue
                 rgba = np.array([1.0, 1.0, 1.0, 1.0])  # solid white
+
+                draw(pos, rgba, 0.0002, future_geom_start + t_path_draw_future_num_points + i)  # original trail
+                draw(pos + trail_copy_offset, rgba, 0.0002, future_geom_start + t_path_draw_future_num_points + trail_len + i)  # shifted copy
                 
-                mujoco.mjv_initGeom(scene.geoms[future_geom_start + t_path_draw_future_num_points + i],
-                    mujoco.mjtGeom.mjGEOM_SPHERE,
-                    np.array([0.0002, 0, 0]),
-                    pos,
-                    np.eye(3).flatten(),
-                    rgba,
-                )
-                # Draw shifted copy of trail
-                mujoco.mjv_initGeom(scene.geoms[future_geom_start + t_path_draw_future_num_points + trail_len + i],
-                    mujoco.mjtGeom.mjGEOM_SPHERE,
-                    np.array([0.0002, 0, 0]),
-                    pos + trail_copy_offset,
-                    np.eye(3).flatten(),
-                    rgba,
-                )
-        
         # update the simulation
         mujoco.mj_step(model, data)
         viewer.sync()
