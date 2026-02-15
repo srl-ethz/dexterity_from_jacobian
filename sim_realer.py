@@ -84,7 +84,7 @@ def reset():
     """
     reset everything upon keyframe change
     """
-    global J, p, c_filtered, path_center, counter, finger_counter
+    global J, p, c_filtered, path_center, counter, finger_counter, object_init_pose
     J[:] = 0
     p[:] = 1e-1
     c_filtered = 1.0
@@ -95,6 +95,7 @@ def reset():
     controller.inputs = []
     controller.t_start = 0.0
     controller.path_flag = False
+    object_init_pose = data.qpos[object_qpos_ids].copy()
 
     init_ctrl[:] = data.ctrl.copy()    # update the initial control command to the new keyframe's control command
 
@@ -236,7 +237,8 @@ def piecewise_path(vertices, slowed_down_time, time_scale_factor):
 
     # map slowed_down_time (period 2pi this is just so it matches the circle from ealier and how we used slowed down time there) to distance along perimeter, 
     # i.e. find the equivalent distance along the perimeter for the given slowed_down_time parameter
-    dist = (slowed_down_time % (2*np.pi)) / (2*np.pi) * total_len
+    # dist = (slowed_down_time % (2*np.pi)) / (2*np.pi) * total_len
+    dist = (slowed_down_time % (10.0)) / (10.0) * total_len
     if dist < 0:
         dist += total_len
 
@@ -252,7 +254,8 @@ def piecewise_path(vertices, slowed_down_time, time_scale_factor):
             # velocity: d(pos)/dt = direction * (total_len / 2pi) * time_scale_factor
             dir_x = (vertices[(i+1)%n][0] - vertices[i][0]) / seg_lengths[i]
             dir_y = (vertices[(i+1)%n][1] - vertices[i][1]) / seg_lengths[i]
-            speed = total_len / (2*np.pi) * time_scale_factor         # dont forget to scale the speed with the time_scale_factor
+            # speed = total_len / (2*np.pi) * time_scale_factor         # dont forget to scale the speed with the time_scale_factor
+            speed = total_len / (10.0) * time_scale_factor         # dont forget to scale the speed with the time_scale_factor
             return x, y, dir_x * speed, dir_y * speed
         # if acc + seg_lengths[i] is not greater than dist, move to the next segment and update the accumulated length
         acc += seg_lengths[i]
@@ -334,7 +337,8 @@ def path(t):
             controller.active_letter = controller.inputs.pop(0)
             controller.path_flag = False
         elif controller.active_letter is not None:
-            if time - controller.t_start > following_time_limit + 2*np.pi / time_scale_factor:   # after one full loop of the circle, we can move on to the next letter, this is just to give some time to settle on the new path before we start following it
+            # if time - controller.t_start > following_time_limit + 2*np.pi / time_scale_factor:   # after one full loop of the circle, we can move on to the next letter, this is just to give some time to settle on the new path before we start following it
+            if time - controller.t_start > following_time_limit + 10.0 / time_scale_factor:   # after one full loop of the circle, we can move on to the next letter, this is just to give some time to settle on the new path before we start following it
                 controller.active_letter = None
                 if controller.inputs:
                     controller.t_start = time
@@ -345,6 +349,8 @@ def path(t):
         if not controller.path_flag:
             vertices = grid_definition(controller.active_letter)
             x, y, dx, dy = piecewise_path(vertices, slowed_down_time, time_scale_factor)
+            pen_tip_init_pos = data.xpos[object_id] + np.array([0, 0, -object_radius])
+            return np.array([x, y, 0]) + pen_tip_init_pos, np.array([dx, dy, 0])
 
     else: 
         controller.path_flag = True
