@@ -17,12 +17,14 @@ eps = 0.005                             # how much we weigh the going back to in
 r = 0.005                               # path radius
 time_scale_factor = 0.5                 # speed of path          
 following_time_limit = 0.5              # time that path center follows moving pen tip (what worked best so far is 0.05, 0.5 (main one) 0.8, 1)
-grid_period = 10.0                      # period of the grid path, i.e. how long it takes in SCALED TIME to do one full loop of the grid path, i.e. if we scale time by 0.5 and the period is 10.0 that means it takes 20 seconds !!!! HOWEVER THIS IS IN SIM TIME WHICH IS SLOWER THAN REAL TIME DUE TO OVERHEAD SO IN REALITY ITS LONGER !!!!
+grid_period = 5.0                      # period of the grid path, i.e. how long it takes in SCALED TIME to do one full loop of the grid path, i.e. if we scale time by 0.5 and the period is 10.0 that means it takes 20 seconds !!!! HOWEVER THIS IS IN SIM TIME WHICH IS SLOWER THAN REAL TIME DUE TO OVERHEAD SO IN REALITY ITS LONGER !!!!
 
 # Path grid setup
-segment_length = 0.005                     # length of segments in the grid for writing letters,
+segment_length = 0.005                     # length of segments in the grid for writing letters
+height = 0.001
 deactivate_keyboard_input = False          # if true, we ignore keyboard input and just follow the shape defined by path_shape
 object_init_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]   # initial pose of the object
+top_flag = False
 
 # Scene setup
 testing = False                         # if true we give zero command - mode used to tune grip manually
@@ -304,6 +306,7 @@ def piecewise_path(vertices, adjusted_time, time_scale_factor):
     Returns: x, y, dx_dt, dy_dt
     """
     global grid_period
+    global top_flag
     
     n = len(vertices)       # number of corners
     seg_lengths = []        # segment lengths
@@ -311,7 +314,8 @@ def piecewise_path(vertices, adjusted_time, time_scale_factor):
     # calculate segment lengths between all vertices starting with vertex 0 and 1 and ending with vertex n-1 and 0 to close the loop
     for i in range(n):
         d = np.sqrt((vertices[(i+1)%n][0] - vertices[i][0])**2 +
-                    (vertices[(i+1)%n][1] - vertices[i][1])**2)
+                    (vertices[(i+1)%n][1] - vertices[i][1])**2 + 
+                    (vertices[(i+1)%n][2] - vertices[i][2])**2)
         seg_lengths.append(d) 
     total_len = sum(seg_lengths)    # total shape perimeter
 
@@ -324,22 +328,27 @@ def piecewise_path(vertices, adjusted_time, time_scale_factor):
     # find which segment and interpolate
     acc = 0             # accumulated length
     for i in range(n):
+        # check if we are in the top part of the grid, this is just for visualization purposes to color the path differently when we are in the top part of the grid, since the top part is where we want to be when we are following the path, so it gives us a visual cue for whether we are following the path correctly or not
+        # check if the next vertex is in the top part of the grid, this is important for when we are transitioning from the bottom part to the top part of the grid
+        top_flag = (abs(vertices[i][2] - height) < 1e-6) or (abs(vertices[(i+1)%n][2] - height) < 1e-6)
         # if the following is true we are on the ith segment, so we can calculate the position and velocity by interpolating between vertex i and vertex i+1
         if acc + seg_lengths[i] > dist + 1e-12:         
             frac = (dist - acc) / seg_lengths[i]            # fraction of segment length we have covered
             # position along segment i according to the fraction we have covered
             x = vertices[i][0] + frac * (vertices[(i+1)%n][0] - vertices[i][0])
             y = vertices[i][1] + frac * (vertices[(i+1)%n][1] - vertices[i][1])
+            z = vertices[i][2] + frac * (vertices[(i+1)%n][2] - vertices[i][2])
             # velocity: d(pos)/dt = direction * (total_len / 2pi) * time_scale_factor
             dir_x = (vertices[(i+1)%n][0] - vertices[i][0]) / seg_lengths[i]
             dir_y = (vertices[(i+1)%n][1] - vertices[i][1]) / seg_lengths[i]
+            dir_z = (vertices[(i+1)%n][2] - vertices[i][2]) / seg_lengths[i]
             speed = total_len / (grid_period) * time_scale_factor         # dont forget to scale the speed with the time_scale_factor
-            return x, y, dir_x * speed, dir_y * speed
+            return x, y, z, dir_x * speed, dir_y * speed, dir_z * speed
         # if acc + seg_lengths[i] is not greater than dist, move to the next segment and update the accumulated length
         acc += seg_lengths[i]
 
     # fallback to first vertex (safety feature)
-    return vertices[0][0], vertices[0][1], 0.0, 0.0
+    return vertices[0][0], vertices[0][1], vertices[0][2], 0.0, 0.0, 0.0
 
 def grid_definition(letter=None):
     """
@@ -348,19 +357,50 @@ def grid_definition(letter=None):
     """
 
     global segment_length
+    global height
     global counter2
     global object_init_pose
 
     # positions of the vertices (the flipped order is due to how the hand is positioned in space)
-    center_center = (x0, y0) = (0.0, 0.0)
-    center_left = (x0 - segment_length, y0)
-    center_right = (x0 + segment_length, y0)
-    bottom_center = (x0, y0 + segment_length)
-    bottom_left = (x0 - segment_length, y0 + segment_length)
-    bottom_right = (x0 + segment_length, y0 + segment_length)
-    top_center = (x0, y0 - segment_length)
-    top_left = (x0 - segment_length, y0 - segment_length)
-    top_right = (x0 + segment_length, y0 - segment_length)
+    # center_center = (x0, y0, z0) = (0.0, 0.0, 0.0)
+    # center_left = (x0 - segment_length, y0, z0)
+    # center_right = (x0 + segment_length, y0, z0)
+    # bottom_center = (x0, y0 + segment_length, z0)
+    # bottom_left = (x0 - segment_length, y0 + segment_length, z0)
+    # bottom_right = (x0 + segment_length, y0 + segment_length, z0)
+    # top_center = (x0, y0 - segment_length, z0)
+    # top_left = (x0 - segment_length, y0 - segment_length, z0)
+    # top_right = (x0 + segment_length, y0 - segment_length, z0)
+
+    top_center = (x0, y0, z0) = (0.0, 0.0, 0.0)
+    top_left = (x0 - segment_length, y0, z0)
+    top_right = (x0 + segment_length, y0, z0)
+    center_center = (x0, y0 + segment_length, z0)
+    center_left = (x0 - segment_length, y0 + segment_length, z0)
+    center_right = (x0 + segment_length, y0 + segment_length, z0)
+    bottom_center = (x0, y0 + 2*segment_length, z0)
+    bottom_left = (x0 - segment_length, y0 + 2*segment_length, z0)
+    bottom_right = (x0 + segment_length, y0 + 2*segment_length, z0)
+
+    # center_center_high = (x0, y0, z1) = (0.0, 0.0, height)
+    # center_left_high = (x0 - segment_length, y0, z1)
+    # center_right_high = (x0 + segment_length, y0, z1)
+    # bottom_center_high = (x0, y0 + segment_length, z1)
+    # bottom_left_high = (x0 - segment_length, y0 + segment_length, z1)
+    # bottom_right_high = (x0 + segment_length, y0 + segment_length, z1)
+    # top_center_high = (x0, y0 - segment_length, z1)
+    # top_left_high = (x0 - segment_length, y0 - segment_length, z1)
+    # top_right_high = (x0 + segment_length, y0 - segment_length, z1)
+
+    top_center_high = (x0, y0, z1) = (0.0, 0.0, height)
+    top_left_high = (x0 - segment_length, y0, z1)
+    top_right_high = (x0 + segment_length, y0, z1)
+    center_center_high = (x0, y0 + segment_length, z1)
+    center_left_high = (x0 - segment_length, y0 + segment_length, z1)
+    center_right_high = (x0 + segment_length, y0 + segment_length, z1)
+    bottom_center_high = (x0, y0 + 2*segment_length, z1)
+    bottom_left_high = (x0 - segment_length, y0 + 2*segment_length, z1)
+    bottom_right_high = (x0 + segment_length, y0 + 2*segment_length, z1)
 
     # Default layout and fallback path if letter not LETTER_PATHS
     vertices = [
@@ -369,16 +409,35 @@ def grid_definition(letter=None):
         (bottom_left), (bottom_center), (bottom_right)
     ]
 
+    #TODO: add paths 
+
     LETTER_PATHS = {
-        'A': [center_center, bottom_center, top_center, top_left, bottom_left, center_left, center_center],
-        'B': [center_center, bottom_center, bottom_left, top_left, top_center, center_center, center_left, center_center],
-        'C': [center_center, bottom_center, bottom_left, bottom_center, top_center, top_left, top_center, center_center],
-        'D': [center_center, bottom_center, center_left, top_center, center_center],
-        'E': [center_center, center_left, center_center, bottom_center, bottom_left, bottom_center, top_center, top_left, top_center, center_center],
-        'F': [center_center, center_left, center_center, bottom_center, top_center, top_left, top_center, center_center],
-        'G': [center_center, bottom_center, bottom_left, center_left, bottom_left, bottom_center, top_center, top_left, top_center, center_center],
-        'H': [center_center, bottom_center, top_center, center_center, center_left, bottom_left, top_left, center_left, center_center],
-        'I': [center_center, top_center, bottom_center, center_center],
+        'A': [center_center, center_center_high, bottom_center_high, bottom_center, top_center, bottom_left, bottom_left_high, center_left_high, center_left, center_center],
+        'B': [center_center, center_center_high, bottom_center_high, bottom_center, bottom_left, top_left, top_center, center_center, center_left, center_left_high, center_center_high, center_center],
+        'C': [center_center, center_center_high, bottom_left_high, bottom_left, bottom_center, top_center, top_left, top_left_high, center_center_high, center_center],
+        'D': [center_center, center_center_high, bottom_center_high, bottom_center, center_left, top_center, center_center],
+        'E': [center_center, center_left, center_left_high, bottom_left_high, bottom_left, bottom_center, top_center, top_left, top_left_high, center_center_high, center_center],
+        'F': [center_center, center_left, center_left_high, bottom_center_high, bottom_center, top_center, top_left, top_left_high, center_center_high, center_center],
+        'G': [center_center, center_center_high, center_left_high, center_left, bottom_left, bottom_center, top_center, top_left, top_left_high, center_center_high, center_center],
+        'H': [center_center, center_center_high, top_center_high, top_center, bottom_center, bottom_center_high, bottom_left_high, bottom_left, top_left, top_left_high, center_left_high, center_left, center_center],
+        'I': [center_center, center_center_high, bottom_center_high, bottom_center, top_center, top_center_high, center_center_high, center_center],
+        'J': [center_center, center_center_high, bottom_right_high, bottom_right, bottom_center, top_center, top_right, top_right_high, center_center_high, center_center],
+        'K': [center_center, top_left, top_left_high, bottom_left_high, bottom_left, center_center, center_center_high, bottom_center_high, bottom_center, top_center, top_center_high, center_center_high, center_center],
+        'L': [center_center, center_center_high, bottom_left_high, bottom_left, bottom_center, top_center, top_center_high, center_center_high, center_center],
+        'M': [center_center, center_center_high, bottom_right_high, bottom_right, top_right, bottom_center, top_left, bottom_left, bottom_left_high, center_center_high, center_center],
+        'N': [center_center, center_center_high, bottom_center_high, bottom_center, top_center, bottom_left, top_left, top_left_high, center_center_high, center_center],
+        'O': [center_center, top_center, top_left, bottom_left, bottom_center, center_center],
+        'P': [center_center, center_center_high, bottom_center_high, bottom_center, top_center, top_left, center_left, center_center],
+        'Q': [center_center, bottom_left, bottom_left_high, bottom_center_high, center_left, top_center, center_right, bottom_center, bottom_center_high, center_center_high, center_center],
+        'R': [center_center, center_center_high, bottom_center_high, bottom_center, top_center, top_left, center_left, center_center, bottom_left, bottom_left_high, center_center_high, center_center],
+        'S': [center_center, center_center_high, top_left_high, top_left, top_center, center_center, center_left, bottom_left, bottom_center, bottom_center_high, center_center_high, center_center],
+        'T': [center_center, center_center_high, bottom_center_high, bottom_center, top_center, top_center_high, top_left_high, top_left, top_right, top_right_high, center_center_high, center_center],
+        'U': [center_center, center_center_high, top_center_high, top_center, bottom_center, bottom_left, top_left, top_left_high, center_center_high, center_center],
+        'V': [center_center, center_center_high, top_center_high, top_center, bottom_center, top_left, top_left_high, center_center_high, center_center],
+        'W': [center_center, center_center_high, top_right_high, top_right, bottom_right, top_center, bottom_left, top_left, top_left_high, center_center_high, center_center],
+        'X': [center_center, center_center_high, top_left_high, top_left, bottom_right, bottom_right_high, top_right_high, top_right, bottom_left, bottom_left_high, center_center_high, center_center],
+        'Y': [center_center, center_center_high, bottom_center_high, bottom_center, top_center, top_center_high, top_left_high, top_left, center_center],
+        'Z': [center_center, center_center_high, top_center_high, top_center, top_left, bottom_center, bottom_left, bottom_left_high, center_center_high, center_center]
     }
 
     vertices = list(LETTER_PATHS.get(letter, vertices))     # if letter is not in LETTER_PATHS, use the full grid as default
@@ -407,8 +466,8 @@ def path(t):
     time = data.time
     adjusted_time = time_scale_factor * (t - following_time_limit)
 
-    # define x, y, dx, dy for safety
-    x, y, dx, dy = 0.0, 0.0, 0.0, 0.0
+    # define x, y, z, dx, dy, dz for safety
+    x, y, z, dx, dy, dz = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
     if deactivate_keyboard_input == True:
         controller.inputs = []
@@ -454,13 +513,13 @@ def path(t):
     if controller.active_letter is not None and not controller.path_flag:
         adjusted_time = time_scale_factor * (time - controller.t_start)
         vertices = grid_definition(controller.active_letter)
-        x, y, dx, dy = piecewise_path(vertices, adjusted_time, time_scale_factor)
-        return np.array([x, y, -object_radius]) + controller.letter_anchor, np.array([dx, dy, 0])
+        x, y, z, dx, dy, dz = piecewise_path(vertices, adjusted_time, time_scale_factor)
+        return np.array([x, y, z]) + controller.letter_anchor, np.array([dx, dy, dz])
 
     if controller.path_flag:
         
         if path_shape == PathShape.REST:
-            x, y, dx, dy = 0.0, 0.0, 0.0, 0.0
+            x, y, z, dx, dy, dz = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
         elif path_shape == PathShape.CIRCLE:
             #this is some additional finetuning for the circle, but not absolutely necessary by any means, we could just have adjusted_time = time_scale_factor * (t - following_time_limit)
@@ -472,8 +531,10 @@ def path(t):
             # # # circular path
             x = r * np.cos(adjusted_time)
             y = r * np.sin(adjusted_time)
+            z = 0.0
             dx = -r * time_scale_factor * np.sin(adjusted_time)
             dy = r * time_scale_factor * np.cos(adjusted_time)
+            dz = 0.0
 
         elif path_shape == PathShape.FIGURE8:
 
@@ -481,29 +542,31 @@ def path(t):
             r = 0.01
             x = r * (np.cos(adjusted_time) / (1 + np.sin(adjusted_time)**2))
             y = r * (np.sin(adjusted_time) * np.cos(adjusted_time) / (1 + np.sin(adjusted_time)**2))
+            z = 0.0
             dx = r*(np.sin(adjusted_time)**2 - 3)*np.sin(adjusted_time)/(np.sin(adjusted_time)**2 + 1)**2
             dy = r*(1 - 3*np.sin(adjusted_time)**2)/(np.sin(adjusted_time)**2 + 1)**2
+            dz = 0.0
 
         elif path_shape == PathShape.SQUARE:
             # square with side 2r, starting from bottom-center going right
-            verts = [(0, -r), (r, -r), (r, r), (-r, r), (-r, -r)]
-            x, y, dx, dy = piecewise_path(verts, adjusted_time, time_scale_factor)
+            verts = [(0, -r, 0), (r, -r, 0), (r, r, 0), (-r, r, 0), (-r, -r, 0)]
+            x, y, z, dx, dy, dz = piecewise_path(verts, adjusted_time, time_scale_factor)
 
         elif path_shape == PathShape.TRIANGLE:
             # equilateral triangle inscribed in circle of radius r, starting from bottom
-            verts = [(0, -r), (r*np.sqrt(3)/2, r/2), (-r*np.sqrt(3)/2, r/2)]
-            x, y, dx, dy = piecewise_path(verts, adjusted_time, time_scale_factor)
+            verts = [(0, -r, 0), (r*np.sqrt(3)/2, r/2, 0), (-r*np.sqrt(3)/2, r/2, 0), (0, -r, 0)]
+            x, y, z, dx, dy, dz = piecewise_path(verts, adjusted_time, time_scale_factor)
 
         elif path_shape == PathShape.BOOTLEG_LETTER_A:
             # letter A: left leg up, back to middle, crossbar right, right leg up, right leg down, return
-            verts = [(-r, -r), (-r, r), (-r, 0), (r, 0), (r, r), (r, -r), (-r, -r)]
-            x, y, dx, dy = piecewise_path(verts, adjusted_time, time_scale_factor)
+            verts = [(-r, -r, 0), (-r, r, 0), (-r, 0, 0), (r, 0, 0), (r, r, 0), (r, -r, 0), (-r, -r, 0)]
+            x, y, z, dx, dy, dz = piecewise_path(verts, adjusted_time, time_scale_factor)
     
     if time < following_time_limit:
         pen_tip_init_pos = data.xpos[object_id] + np.array([0, 0, -object_radius])
-        path_center = pen_tip_init_pos - np.array([x, y, 0])                # place path_center so that current (x, y) lands on pen tip
+        path_center = pen_tip_init_pos - np.array([x, y, z])                # place path_center so that current (x, y) lands on pen tip
 
-    return np.array([x, y, 0]) + path_center, np.array([dx, dy, 0])
+    return np.array([x, y, z]) + path_center, np.array([dx, dy, dz])
 
 def compute_task_space_command_pen():
 
@@ -747,7 +810,7 @@ with mujoco.viewer.launch_passive(model, data, key_callback=controller.keyboard_
             draw(pos, rgba, 0.0005, future_geom_start + i)
 
         # Record pen-tip position for permanent trail (circular buffer)
-        if t > 5* following_time_limit:
+        if t > 5* following_time_limit and top_flag == False:   # start recording trail after some time to allow for settling and only record when we arent in top path
             if trail_step_counter % trail_stride == 0:
                 trail_positions[trail_head] = data.xpos[object_id].copy()
                 trail_head = (trail_head + 1) % trail_len
