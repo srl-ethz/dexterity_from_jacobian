@@ -372,7 +372,13 @@ def grid_definition(letter=None):
     LETTER_PATHS = {
         'A': [center_center, bottom_center, top_center, top_left, bottom_left, center_left, center_center],
         'B': [center_center, bottom_center, bottom_left, top_left, top_center, center_center, center_left, center_center],
-        'C': [center_center, bottom_center, bottom_left, bottom_center, top_center, top_left, top_center, center_center]
+        'C': [center_center, bottom_center, bottom_left, bottom_center, top_center, top_left, top_center, center_center],
+        'D': [center_center, bottom_center, center_left, top_center, center_center],
+        'E': [center_center, center_left, center_center, bottom_center, bottom_left, bottom_center, top_center, top_left, top_center, center_center],
+        'F': [center_center, center_left, center_center, bottom_center, top_center, top_left, top_center, center_center],
+        'G': [center_center, bottom_center, bottom_left, center_left, bottom_left, bottom_center, top_center, top_left, top_center, center_center],
+        'H': [center_center, bottom_center, top_center, center_center, center_left, bottom_left, top_left, center_left, center_center],
+        'I': [center_center, top_center, bottom_center, center_center],
     }
 
     vertices = list(LETTER_PATHS.get(letter, vertices))     # if letter is not in LETTER_PATHS, use the full grid as default
@@ -384,7 +390,6 @@ def grid_definition(letter=None):
     #     counter2 = 0
 
     return vertices
-
 
 def path(t):
     """
