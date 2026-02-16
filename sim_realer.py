@@ -361,17 +361,31 @@ def grid_definition(letter=None):
     global counter2
     global object_init_pose
 
-    # positions of the vertices (the flipped order is due to how the hand is positioned in space)
-    # center_center = (x0, y0, z0) = (0.0, 0.0, 0.0)
-    # center_left = (x0 - segment_length, y0, z0)
-    # center_right = (x0 + segment_length, y0, z0)
-    # bottom_center = (x0, y0 + segment_length, z0)
-    # bottom_left = (x0 - segment_length, y0 + segment_length, z0)
-    # bottom_right = (x0 + segment_length, y0 + segment_length, z0)
-    # top_center = (x0, y0 - segment_length, z0)
-    # top_left = (x0 - segment_length, y0 - segment_length, z0)
-    # top_right = (x0 + segment_length, y0 - segment_length, z0)
+    """
+    original grid definition
+    positions of the vertices (the flipped order is due to how the hand is positioned in space)
+    center_center = (x0, y0, z0) = (0.0, 0.0, 0.0)
+    center_left = (x0 - segment_length, y0, z0)
+    center_right = (x0 + segment_length, y0, z0)
+    bottom_center = (x0, y0 + segment_length, z0)
+    bottom_left = (x0 - segment_length, y0 + segment_length, z0)
+    bottom_right = (x0 + segment_length, y0 + segment_length, z0)
+    top_center = (x0, y0 - segment_length, z0)
+    top_left = (x0 - segment_length, y0 - segment_length, z0)
+    top_right = (x0 + segment_length, y0 - segment_length, z0)
+    
+    center_center_high = (x0, y0, z1) = (0.0, 0.0, height)
+    center_left_high = (x0 - segment_length, y0, z1)
+    center_right_high = (x0 + segment_length, y0, z1)
+    bottom_center_high = (x0, y0 + segment_length, z1)
+    bottom_left_high = (x0 - segment_length, y0 + segment_length, z1)
+    bottom_right_high = (x0 + segment_length, y0 + segment_length, z1)
+    top_center_high = (x0, y0 - segment_length, z1)
+    top_left_high = (x0 - segment_length, y0 - segment_length, z1)
+    top_right_high = (x0 + segment_length, y0 - segment_length, z1)
+    """
 
+    # shifted towards hand by one segment_length for better reachability of path 
     top_center = (x0, y0, z0) = (0.0, 0.0, 0.0)
     top_left = (x0 - segment_length, y0, z0)
     top_right = (x0 + segment_length, y0, z0)
@@ -381,16 +395,6 @@ def grid_definition(letter=None):
     bottom_center = (x0, y0 + 2*segment_length, z0)
     bottom_left = (x0 - segment_length, y0 + 2*segment_length, z0)
     bottom_right = (x0 + segment_length, y0 + 2*segment_length, z0)
-
-    # center_center_high = (x0, y0, z1) = (0.0, 0.0, height)
-    # center_left_high = (x0 - segment_length, y0, z1)
-    # center_right_high = (x0 + segment_length, y0, z1)
-    # bottom_center_high = (x0, y0 + segment_length, z1)
-    # bottom_left_high = (x0 - segment_length, y0 + segment_length, z1)
-    # bottom_right_high = (x0 + segment_length, y0 + segment_length, z1)
-    # top_center_high = (x0, y0 - segment_length, z1)
-    # top_left_high = (x0 - segment_length, y0 - segment_length, z1)
-    # top_right_high = (x0 + segment_length, y0 - segment_length, z1)
 
     top_center_high = (x0, y0, z1) = (0.0, 0.0, height)
     top_left_high = (x0 - segment_length, y0, z1)
