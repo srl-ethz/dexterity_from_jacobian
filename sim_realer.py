@@ -14,12 +14,12 @@ from mujoco import viewer
 
 
 MODEL_PATH = Path(__file__).with_name("shadow_hand") / "scene_pen_realer.xml"
-RESET_KEYFRAME = 6
+RESET_KEYFRAME = 0
 
 # Circle reference and task-space controller.
 CIRCLE_RADIUS = 0.005
-CIRCLE_ANGULAR_SPEED = 0.5
-POSITION_GAIN = 9.0
+CIRCLE_ANGULAR_SPEED = 0.2
+POSITION_GAIN = 3.0
 
 # Jacobian estimator and joint-space controller.
 TASK_DIM = 2
@@ -147,12 +147,14 @@ class JacobianCircleController:
         measured_dq = data.qvel[self.dof_ids]
         current_velocity = np.asarray(data.sensordata[:TASK_DIM])
         if np.any(np.abs(measured_dq) > MOTION_THRESHOLD):
-            self._update_jacobian(current_velocity, effective_dq)
+            # self._update_jacobian(current_velocity, effective_dq)
+            self._update_jacobian(current_velocity, measured_dq)
 
         target_position, target_velocity = self.circle_reference(data.time)
         position_error = target_position[:TASK_DIM] - data.xpos[self.pen_tip_id][
             :TASK_DIM
         ]
+        # TODO: add D and I terms once it works on some level
         commanded_velocity = POSITION_GAIN * position_error + target_velocity[
             :TASK_DIM
         ]
@@ -197,9 +199,9 @@ def run_viewer(model, data, controller):
     path_point_count = 48
 
     with viewer.launch_passive(model, data) as sim_viewer:
-        sim_viewer.cam.distance = 0.7
-        sim_viewer.cam.azimuth = -120
-        sim_viewer.cam.elevation = -60
+        sim_viewer.cam.distance = 0.4
+        sim_viewer.cam.azimuth = -150
+        sim_viewer.cam.elevation = -50
         sim_viewer.cam.lookat = [0.2, -0.2, 0]
 
         scene = sim_viewer.user_scn
