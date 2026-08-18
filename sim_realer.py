@@ -14,8 +14,7 @@ from mujoco import viewer
 
 
 MODEL_PATH = Path(__file__).with_name("shadow_hand") / "scene_pen_realer.xml"
-RESET_KEYFRAME = 0
-CONTROL_DECIMATION = 1  # raise to ~20 later
+CONTROL_DECIMATION = 10  # raise to ~20 later
 
 # Circle reference and task-space controller.
 CIRCLE_RADIUS = 0.005
@@ -115,9 +114,9 @@ class JacobianCircleController:
         self.start_time = self.data.time
         self.decimation_counter = CONTROL_DECIMATION
 
-        # Start at the bottom of the circle, exactly at the current pen tip.
-        initial_offset = np.array([0.0, -CIRCLE_RADIUS, 0.0])
-        self.circle_center[:] = self.data.xpos[self.pen_tip_id] - initial_offset
+        # Keep the circle centered on the pen tip's reset-time position so the
+        # path remains within the available writing area.
+        self.circle_center[:] = self.data.xpos[self.pen_tip_id]
 
     def circle_reference(self, time):
         """Return circle position and velocity at simulation time ``time``."""
@@ -158,18 +157,17 @@ class JacobianCircleController:
         # compute velocity based on the difference from the previous control step
         current_q = data.qpos[self.dof_ids]
         dq = (current_q - self.prev_q) / self.dt
+        # dq = data.qvel[self.dof_ids]
         self.prev_q[:] = current_q
         current_x = data.xpos[self.pen_tip_id][:TASK_DIM]
         dx = (current_x - self.prev_x) / self.dt
+        # dx = data.sensordata[:TASK_DIM]
         self.prev_x[:] = current_x
         
         # self._update_jacobian(dx, dq_cmd)
         self._update_jacobian(dx, dq)
 
         if data.time - self.start_time < BOOTSTRAP_DURATION:
-            # Keep the bottom of the future circle under the moving pen tip, while its path center follows the pen.
-            initial_offset = np.array([0.0, -CIRCLE_RADIUS, 0.0])
-            self.circle_center[:] = current_x - initial_offset
             commanded_velocity = (
                 self.rng.randn(TASK_DIM) * BOOTSTRAP_VELOCITY_SCALE
             )
@@ -266,7 +264,7 @@ def run_viewer(model, data, controller):
 def main():
     model = mujoco.MjModel.from_xml_path(str(MODEL_PATH))
     data = mujoco.MjData(model)
-    mujoco.mj_resetDataKeyframe(model, data, RESET_KEYFRAME)
+    mujoco.mj_resetDataKeyframe(model, data, 0)
 
     controller = JacobianCircleController(model, data)
     actuator_names = [
