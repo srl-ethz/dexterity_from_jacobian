@@ -32,12 +32,12 @@ MOTION_THRESHOLD = 1e-4
 DAMPING = 0.005
 PULLBACK_GAIN = 1.
 MAX_JOINT_VEL = 5.
-COMMAND_EMA_WEIGHT = 1.#0.8
+COMMAND_EMA_WEIGHT = 0.8
 
-# A small random Jacobian lets the full controller move immediately. Without
-# the ROS controller's initial excitation waypoints, an all-zero Jacobian
-# would produce an all-zero command and could never bootstrap the estimator.
-J_INIT_SCALE = 0.01
+# initially excite the controller so an all-zero jacobian can learn from the
+# resulting joint and pen-tip motion before circle tracking starts.
+BOOTSTRAP_DURATION = 1.
+BOOTSTRAP_VELOCITY_SCALE = 5e-2
 RANDOM_SEED = 42
 
 
@@ -46,8 +46,8 @@ def _name(model, object_type, object_id):
 
 
 def _finger_actuator_ids(model):
-    """Return the fixed thumb/index/middle actuator set."""
-    finger_tags = ("_TH", "_FF", "_MF")
+    """Return the wrist/thumb/index/middle actuator set."""
+    finger_tags = ("_WR", "_TH", "_FF", "_MF")
     ids = [
         actuator_id
         for actuator_id in range(model.nu)
@@ -106,7 +106,7 @@ class JacobianCircleController:
 
     def reset(self):
         """Reset estimator state around the simulation's current grip."""
-        self.J[:] = self.rng.randn(TASK_DIM, self.actuator_count) * J_INIT_SCALE
+        self.J[:] = 0.
         self.p[:] = P_INIT
         self.prev_delta_q_cmd[:] = 0.0
         self.prev_q[:] = self.data.qpos[self.dof_ids]
@@ -121,7 +121,8 @@ class JacobianCircleController:
 
     def circle_reference(self, time):
         """Return circle position and velocity at simulation time ``time``."""
-        phase = CIRCLE_ANGULAR_SPEED * (time - self.start_time) - np.pi / 2.0
+        tracking_time = max(time - self.start_time - BOOTSTRAP_DURATION, 0.0)
+        phase = CIRCLE_ANGULAR_SPEED * tracking_time - np.pi / 2.0
         offset = CIRCLE_RADIUS * np.array(
             [np.cos(phase), np.sin(phase), 0.0]
         )
@@ -165,12 +166,20 @@ class JacobianCircleController:
         # self._update_jacobian(dx, dq_cmd)
         self._update_jacobian(dx, dq)
 
-        target_position, target_velocity = self.circle_reference(data.time)
-        position_error = target_position[:TASK_DIM] - current_x
-        # TODO: add D and I terms once it works on some level
-        commanded_velocity = POSITION_GAIN * position_error + target_velocity[
-            :TASK_DIM
-        ]
+        if data.time - self.start_time < BOOTSTRAP_DURATION:
+            # Keep the bottom of the future circle under the moving pen tip, while its path center follows the pen.
+            initial_offset = np.array([0.0, -CIRCLE_RADIUS, 0.0])
+            self.circle_center[:] = current_x - initial_offset
+            commanded_velocity = (
+                self.rng.randn(TASK_DIM) * BOOTSTRAP_VELOCITY_SCALE
+            )
+        else:
+            target_position, target_velocity = self.circle_reference(data.time)
+            position_error = target_position[:TASK_DIM] - current_x
+            # TODO: add D and I terms once it works on some level
+            commanded_velocity = (
+                POSITION_GAIN * position_error + target_velocity[:TASK_DIM]
+            )
 
         # Damped pseudoinverse and null-space pullback, matching the ROS node.
         J_pinv = self.J.T @ np.linalg.inv(
