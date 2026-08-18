@@ -92,7 +92,7 @@ class JacobianCircleController:
         self.rng = np.random.RandomState(RANDOM_SEED)
         self.J = np.empty((TASK_DIM, self.actuator_count))
         self.p = np.empty(self.actuator_count)
-        self.prev_delta_q = np.empty(self.actuator_count)
+        self.prev_delta_q_cmd = np.empty(self.actuator_count)
         self.init_ctrl = np.empty(model.nu)
         self.circle_center = np.empty(3)
         self.start_time = 0.0
@@ -103,7 +103,7 @@ class JacobianCircleController:
         """Reset estimator state around the simulation's current grip."""
         self.J[:] = self.rng.randn(TASK_DIM, self.actuator_count) * J_INIT_SCALE
         self.p[:] = P_INIT
-        self.prev_delta_q[:] = 0.0
+        self.prev_delta_q_cmd[:] = 0.0
         self.init_ctrl[:] = self.data.ctrl
         self.start_time = self.data.time
 
@@ -122,19 +122,19 @@ class JacobianCircleController:
         )
         return self.circle_center + offset, velocity
 
-    def _update_jacobian(self, current_velocity, effective_dq):
+    def _update_jacobian(self, current_velocity, dq):
         """Apply the diagonal-covariance RLS update used by the ROS node."""
-        active = np.abs(effective_dq) > MOTION_THRESHOLD
+        active = np.abs(dq) > MOTION_THRESHOLD
         self.p[active] = np.minimum(
             self.p[active] / CONFIDENCE_FORGETTING_FACTOR, P_INIT
         )
 
-        denominator = self.p @ (effective_dq * effective_dq) + OBS_NOISE
-        prediction_error = current_velocity - self.J @ effective_dq
-        numerator = prediction_error[:, None] * (self.p * effective_dq)[None, :]
+        denominator = self.p @ (dq * dq) + OBS_NOISE
+        prediction_error = current_velocity - self.J @ dq
+        numerator = prediction_error[:, None] * (self.p * dq)[None, :]
         self.J += numerator / denominator
         self.p[:] = np.maximum(
-            self.p * (1.0 - self.p * effective_dq * effective_dq / denominator),
+            self.p * (1.0 - self.p * dq * dq / denominator),
             CONFIDENCE_FLOOR,
         )
 
@@ -143,11 +143,11 @@ class JacobianCircleController:
 
         # As in dex_controller_node.py, the previous position increment is the
         # input that caused the currently observed pen-tip velocity.
-        effective_dq = self.prev_delta_q / dt
+        dq_cmd = self.prev_delta_q_cmd / dt
         measured_dq = data.qvel[self.dof_ids]
         current_velocity = np.asarray(data.sensordata[:TASK_DIM])
         if np.any(np.abs(measured_dq) > MOTION_THRESHOLD):
-            # self._update_jacobian(current_velocity, effective_dq)
+            # self._update_jacobian(current_velocity, dq_cmd)
             self._update_jacobian(current_velocity, measured_dq)
 
         target_position, target_velocity = self.circle_reference(data.time)
@@ -173,14 +173,14 @@ class JacobianCircleController:
         delta_q = np.clip(delta_q, -MAX_JOINT_VEL * dt, MAX_JOINT_VEL * dt)
         delta_q = (
             COMMAND_EMA_WEIGHT * delta_q
-            + (1.0 - COMMAND_EMA_WEIGHT) * self.prev_delta_q
+            + (1.0 - COMMAND_EMA_WEIGHT) * self.prev_delta_q_cmd
         )
 
         data.ctrl[self.actuator_ids] += delta_q
         data.ctrl[:] = np.clip(
             data.ctrl, model.actuator_ctrlrange[:, 0], model.actuator_ctrlrange[:, 1]
         )
-        self.prev_delta_q[:] = delta_q
+        self.prev_delta_q_cmd[:] = delta_q
 
 
 def _draw_marker(scene, geom_id, position, color, radius):
