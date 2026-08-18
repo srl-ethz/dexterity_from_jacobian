@@ -15,29 +15,29 @@ from mujoco import viewer
 
 MODEL_PATH = Path(__file__).with_name("shadow_hand") / "scene_pen_realer.xml"
 RESET_KEYFRAME = 0
-CONTROL_DECIMATION = 20
+CONTROL_DECIMATION = 1  # raise to ~20 later
 
 # Circle reference and task-space controller.
 CIRCLE_RADIUS = 0.005
 CIRCLE_ANGULAR_SPEED = 0.2
-POSITION_GAIN = 1.
+POSITION_GAIN = 5.
 
 # Jacobian estimator and joint-space controller.
-TASK_DIM = 2
+TASK_DIM = 3
 P_INIT = 0.1
 OBS_NOISE = 1e-3
-CONFIDENCE_FLOOR = 0.01
+CONFIDENCE_FLOOR = 1e-6
 CONFIDENCE_FORGETTING_FACTOR = 0.999
 MOTION_THRESHOLD = 1e-4
-DAMPING = 0.003
-PULLBACK_GAIN = 0.05
-MAX_JOINT_VEL = 0.8
-COMMAND_EMA_WEIGHT = 0.8
+DAMPING = 0.005
+PULLBACK_GAIN = 1.
+MAX_JOINT_VEL = 5.
+COMMAND_EMA_WEIGHT = 1.#0.8
 
 # A small random Jacobian lets the full controller move immediately. Without
 # the ROS controller's initial excitation waypoints, an all-zero Jacobian
 # would produce an all-zero command and could never bootstrap the estimator.
-J_INIT_SCALE = 1.2e-2
+J_INIT_SCALE = 0.01
 RANDOM_SEED = 42
 
 
@@ -161,9 +161,9 @@ class JacobianCircleController:
         current_x = data.xpos[self.pen_tip_id][:TASK_DIM]
         dx = (current_x - self.prev_x) / self.dt
         self.prev_x[:] = current_x
-        if np.any(np.abs(dq) > MOTION_THRESHOLD):
-            # self._update_jacobian(dx, dq_cmd)
-            self._update_jacobian(dx, dq)
+        
+        # self._update_jacobian(dx, dq_cmd)
+        self._update_jacobian(dx, dq)
 
         target_position, target_velocity = self.circle_reference(data.time)
         position_error = target_position[:TASK_DIM] - current_x
