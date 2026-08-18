@@ -21,8 +21,16 @@
   </asset>
 
   <keyframe>
-    <key name="5 steep pencil 2 - Main"
-         qpos="-0.0558668 0.0461666 -0.0776084 0.126373 0.800252 1.57256 -0.00030235 0.782089 0.926976 1.00764 -0.00470478 1.00151 1.56446 1.57101 0.00790799 -0.0049014 1.00077 1.56467 1.57108 0.742297 0.734078 0.0334752 -0.0241605 0.567339 0.0482234 -0.348809 0.0068767 0.885611 -0.29345 -0.0353255 0.358236"
+    <!-- How was the pose found?
+        1. set good-looking "writing" hand pose manually, ignore the pen
+        2. "Copy pose" from the GUI and paste the hand pose values to qpos
+        3. set good initial pose for the pen, [0.05 -0.33 0.02 0.9238795 -0.2705981 -0.2705981 0]
+           (quaternion was calculated by computing -45 degree rotation around (0, 1, 0) axis)
+        4. adjust as needed
+        5. finally, "Copy Pose" again and paste
+        -->
+    <key name="grasp"
+         qpos="-0.0558668 0.0461666 -0.0776084 0.126373 0.800252 1.57256 -0.00030235 0.782089 0.926976 1.00764 -0.00470478 1.00151 1.56446 1.57101 0.00790799 -0.0049014 1.00077 1.56467 1.57108 0.742297 0.734078 0.0334752 -0.0241605 0.567339 0.0482234 -0.348809 0.0078767 0.885611 -0.29345 -0.0353255 0.358236"
          ctrl="0 0 
          0.85 0.7 0.002094 0 0.590452 
          -0.073311 0.15 2.5
@@ -38,17 +46,7 @@
 
     <geom name="floor" pos="0 0 -0.1" size="0 0 0.05" type="plane" material="groundplane"/>
     
-    <body name="pen" pos="0 0 0" ><!-- quat="0 0 0 0" -->
-    <!-- the following is for the main grip -->
-      <!-- <freejoint/>
-      <inertial pos="0 0 -0.04" mass="0.05" diaginertia="0.0001 0.0001 0.0001"/>
-      <geom type="capsule" size="0.007 0.065" priority="1" friction="1.2 0.01 0.003" contype="5" conaffinity="5"/> 
-      <geom type="capsule" size="0.004 0.0075" pos="0 0 -0.0725" friction="1.2 0.01 0.003" contype="3" conaffinity="3"/>
-      <body name="object" pos="0 0 -0.084"> 
-        <geom type="sphere" size="0.001" mass="0.00" rgba="1 0 0 1" friction="0.1 0.0 0.0" contype="5" conaffinity="5"/>
-      </body>
-    </body> -->
-    <!-- the following is for the lower grip-->
+    <body name="pen" pos="0 0 0" >
       <freejoint/>
       <geom type="capsule" size="0.007 0.065" priority="1" friction="1.5 0.01 0.003" contype="5" conaffinity="5"/> 
       <geom type="capsule" size="0.004 0.0075" pos="0 0 -0.0725" friction="1.5 0.01 0.003" contype="3" conaffinity="3"/>
@@ -57,11 +55,6 @@
       </body>
     </body>
 
-    <!-- the following is for the main grip -->
-    <!-- <body name="paper" pos="0.1 -0.35 -0.076">
-      <geom type="box" size="0.1 0.1 0.0001" mass="0" rgba="1 1 0 0.8" friction="0.1 0 0" contype="5" conaffinity="5" solref="0.005 1" solimp="0.99 0.99 0.001 0.5 2" />
-    </body>  -->
-    <!-- the following is for the lower grip-->
     <body name="paper" pos="0.1 -0.35 -0.09">
       <geom type="box" size="0.1 0.1 0.0001" mass="0" rgba="1 1 0 0.8" friction="0.1 0 0" contype="5" conaffinity="5" solref="0.005 1" solimp="0.99 0.99 0.001 0.5 2" />
     </body>  

@@ -95,6 +95,7 @@
 
   <worldbody>
     <!-- tilted XYZ euler 90, 0, -20 degrees -->
+    <!-- https://www.andre-gaschler.com/rotationconverter/ -->
     <body name="rh_forearm" childclass="right_hand" quat="0.6532815 .6532815 0.2705981 -0.2705981">
       <inertial mass="3" pos="0 0 0.09" diaginertia="0.0138 0.0138 0.00744"/>
       <geom class="plastic_visual" mesh="forearm_0" material="gray"/>
