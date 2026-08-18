@@ -20,7 +20,7 @@ CONTROL_DECIMATION = 20
 # Circle reference and task-space controller.
 CIRCLE_RADIUS = 0.005
 CIRCLE_ANGULAR_SPEED = 0.2
-POSITION_GAIN = 3.0
+POSITION_GAIN = 1.
 
 # Jacobian estimator and joint-space controller.
 TASK_DIM = 2
@@ -37,7 +37,7 @@ COMMAND_EMA_WEIGHT = 0.8
 # A small random Jacobian lets the full controller move immediately. Without
 # the ROS controller's initial excitation waypoints, an all-zero Jacobian
 # would produce an all-zero command and could never bootstrap the estimator.
-J_INIT_SCALE = 1.2e-3
+J_INIT_SCALE = 1.2e-2
 RANDOM_SEED = 42
 
 
