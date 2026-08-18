@@ -15,6 +15,7 @@ from mujoco import viewer
 
 MODEL_PATH = Path(__file__).with_name("shadow_hand") / "scene_pen_realer.xml"
 RESET_KEYFRAME = 0
+CONTROL_DECIMATION = 20
 
 # Circle reference and task-space controller.
 CIRCLE_RADIUS = 0.005
@@ -82,6 +83,7 @@ class JacobianCircleController:
         self.actuator_ids = _finger_actuator_ids(model)
         self.dof_ids = _actuator_dof_ids(model, self.actuator_ids)
         self.actuator_count = len(self.actuator_ids)
+        self.dt = model.opt.timestep * CONTROL_DECIMATION
 
         self.pen_tip_id = mujoco.mj_name2id(
             model, mujoco.mjtObj.mjOBJ_BODY, "pen_tip"
@@ -93,9 +95,12 @@ class JacobianCircleController:
         self.J = np.empty((TASK_DIM, self.actuator_count))
         self.p = np.empty(self.actuator_count)
         self.prev_delta_q_cmd = np.empty(self.actuator_count)
+        self.prev_q = np.empty(self.actuator_count)  # measured joint angles
+        self.prev_x = np.empty(TASK_DIM)  # measured pen-tip position
         self.init_ctrl = np.empty(model.nu)
         self.circle_center = np.empty(3)
         self.start_time = 0.0
+        self.decimation_counter = CONTROL_DECIMATION
         mujoco.mj_forward(self.model, self.data)
         self.reset()
 
@@ -104,8 +109,11 @@ class JacobianCircleController:
         self.J[:] = self.rng.randn(TASK_DIM, self.actuator_count) * J_INIT_SCALE
         self.p[:] = P_INIT
         self.prev_delta_q_cmd[:] = 0.0
+        self.prev_q[:] = self.data.qpos[self.dof_ids]
+        self.prev_x[:] = self.data.xpos[self.pen_tip_id][:TASK_DIM]
         self.init_ctrl[:] = self.data.ctrl
         self.start_time = self.data.time
+        self.decimation_counter = CONTROL_DECIMATION
 
         # Start at the bottom of the circle, exactly at the current pen tip.
         initial_offset = np.array([0.0, -CIRCLE_RADIUS, 0.0])
@@ -139,21 +147,26 @@ class JacobianCircleController:
         )
 
     def control_cb(self, model, data):
-        dt = model.opt.timestep
+        # only run the controller every CONTROL_DECIMATION steps
+        if self.decimation_counter < CONTROL_DECIMATION:
+            self.decimation_counter += 1
+            return
+        self.decimation_counter = 1
 
-        # As in dex_controller_node.py, the previous position increment is the
-        # input that caused the currently observed pen-tip velocity.
-        dq_cmd = self.prev_delta_q_cmd / dt
-        measured_dq = data.qvel[self.dof_ids]
-        current_velocity = np.asarray(data.sensordata[:TASK_DIM])
-        if np.any(np.abs(measured_dq) > MOTION_THRESHOLD):
-            # self._update_jacobian(current_velocity, dq_cmd)
-            self._update_jacobian(current_velocity, measured_dq)
+        dq_cmd = self.prev_delta_q_cmd / self.dt
+        # compute velocity based on the difference from the previous control step
+        current_q = data.qpos[self.dof_ids]
+        dq = (current_q - self.prev_q) / self.dt
+        self.prev_q[:] = current_q
+        current_x = data.xpos[self.pen_tip_id][:TASK_DIM]
+        dx = (current_x - self.prev_x) / self.dt
+        self.prev_x[:] = current_x
+        if np.any(np.abs(dq) > MOTION_THRESHOLD):
+            # self._update_jacobian(dx, dq_cmd)
+            self._update_jacobian(dx, dq)
 
         target_position, target_velocity = self.circle_reference(data.time)
-        position_error = target_position[:TASK_DIM] - data.xpos[self.pen_tip_id][
-            :TASK_DIM
-        ]
+        position_error = target_position[:TASK_DIM] - current_x
         # TODO: add D and I terms once it works on some level
         commanded_velocity = POSITION_GAIN * position_error + target_velocity[
             :TASK_DIM
@@ -168,9 +181,9 @@ class JacobianCircleController:
         pullback = self.init_ctrl[self.actuator_ids] - data.ctrl[self.actuator_ids]
         delta_q = (
             tracking_dq + PULLBACK_GAIN * null_projector @ pullback
-        ) * dt
+        ) * self.dt
 
-        delta_q = np.clip(delta_q, -MAX_JOINT_VEL * dt, MAX_JOINT_VEL * dt)
+        delta_q = np.clip(delta_q, -MAX_JOINT_VEL * self.dt, MAX_JOINT_VEL * self.dt)
         delta_q = (
             COMMAND_EMA_WEIGHT * delta_q
             + (1.0 - COMMAND_EMA_WEIGHT) * self.prev_delta_q_cmd
