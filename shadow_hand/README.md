@@ -1,3 +1,5 @@
+from [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie/tree/main/shadow_hand), with the addition of a scene of the Shadow Hand holding a pen. 
+
 # Shadow Hand E3M5 Description (MJCF)
 
 Requires MuJoCo 2.2.2 or later.

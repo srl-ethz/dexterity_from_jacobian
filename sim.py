@@ -13,7 +13,7 @@ import numpy as np
 from mujoco import viewer
 
 
-MODEL_PATH = Path(__file__).with_name("shadow_hand") / "scene_pen_realer.xml"
+MODEL_PATH = Path(__file__).with_name("shadow_hand") / "scene_pen.xml"
 # simulation is 500Hz (defined in MJCF file)
 CONTROL_DECIMATION = 10  # The controller is run every CONTROL_DECIMATION simulation steps.
 
