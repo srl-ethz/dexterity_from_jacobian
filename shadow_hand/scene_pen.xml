@@ -1,4 +1,6 @@
 <mujoco model="right_shadow_hand scene">
+
+  <!-- <option gravity="0 0 0"/>  -->
   <compiler texturedir="assets"/>
   <include file="right_hand_tilted.xml"/>
 
@@ -26,31 +28,46 @@
         1. set good-looking "writing" hand pose manually, ignore the pen
         2. "Copy pose" from the GUI and paste the hand pose values to qpos
         3. set good initial pose for the pen, [0.05 -0.33 0.02 0.9238795 -0.2705981 -0.2705981 0]
-           (quaternion was calculated by computing -45 degree rotation around (1, 1, 0) axis)
+           (quaternion was calculated by computing -45 degree rotation around (0, 1, 0) axis)
         4. adjust as needed
         5. finally, "Copy Pose" again and paste
         -->
-    <key qpos='-0.0781909 0.0215387 0.0161419 0.348155 0.952851 1.03989 0.0221297 0.987039 0.777625 1.21709 -0.00505566 1.00028 1.56499 1.57113 -0.000293239 -0.00505519 1.00028 1.56498 1.57113 0.111966 0.949405 0.0396794 0.681961 0.286704 0.0565657 -0.334897 0.00738511 0.855894 -0.431063 -0.261003 0.116222'
+    <key qpos='-0.074637 0.020785 0.0186753 0.40473 0.990873 1.20782 0.0121104 0.991475 0.712017 1.28359 -0.005056 1.00035 1.565 1.57113 -0.000290031 -0.00505553 1.00035 1.56499 1.57113 0.191717 1.02608 0.01594 0.48581 0.287641 0.048 -0.35 0.014 0.9848078 0 -0.1736482 0.0'
          ctrl='0 0
-               0.18 0.9 0 0.7 0.3
-               0 0.35 2.
+               0.24 1. 0 0.5 0.3
+               0 0.4 2.2
                0 1 2.
                0 1. 3.14
                0 0 1. 3.14'/>
+    <key name="grasp soft" qpos="-0.01386 -0.5706 -0.3126 1.013 0.5084 0.002212 -0.139 0.6854 0.9554 0.01895 0.1659 1.13 0.04252 0.02969 0.3183 -0.2968 0.8024 0.8261 0.01958 -0.04934 0.92 0.1932 0.5457 0.1011 0 0 0 0 0 0 0"/>
+    <key name="grasp hard" qpos="-0.06713 -0.5377 -0.3099 1.128 0.5067 0.001659 -0.1352 0.8652 0.93 0.01263 0.1724 1.165 0.2726 0.034 0.3116 -0.354 0.9553 0.7928 0.01958 0.05755 1.182 0.1947 0.5578 0.2482 0 0 0 0 0 0 0"/>
   </keyframe>
 
   <worldbody>
+
     <light pos="0 0 1"/>
     <light pos="0.3 0 1.5" dir="0 0 -1" directional="true"/>
+
     <geom name="floor" pos="0 0 -0.1" size="0 0 0.05" type="plane" material="groundplane"/>
+    
     <body name="pen" pos="0 0 0">
       <freejoint/>
-      <geom type="capsule" size="0.008 0.075" condim="6" priority="1" mass="0.1"
-        friction="0.5 0.01 0.003"/>
-      <body name="object" pos="0 0 -0.075">
-        <!-- the body at the pen tip, that will be tracked -->
-        <geom type="sphere" size="0.008" mass="0" rgba="1 0 0 1"/>
+      <geom type="capsule" size="0.008 0.075" priority="1" mass="0.05"
+        friction="1. 0.01 0.003"/> 
+      <geom type="sphere" size="0.0081" pos="0 0 0.08" condim="1" density="5000" rgba="1 1 1 1"/>
+      <body name="object" pos="0 0 -0.085"> <!-- the body at the pen tip, that will be tracked -->
+        <geom type="sphere" size="0.003" mass="0" rgba="1 0 0 1"/>
       </body>
     </body>
+
+    <body name="paper" pos="0.1 -0.35 -0.07">
+      <geom type="box" size="0.1 0.1 0.001" mass="0" rgba="1 1 0 0.8" friction="0.01 0 0"/>
+    </body> 
+
   </worldbody>
+
+  <sensor>
+    <framelinvel objtype="body" objname="object"/>
+  </sensor>
+
 </mujoco>

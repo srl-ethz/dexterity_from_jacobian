@@ -6,17 +6,18 @@ import numpy as np
 run the simulation using the estimated Jacobian based controller
 """
 
-model_path = "shadow_hand/scene_sphere.xml"
+model_path = "shadow_hand/scene_pen.xml"
 model = mujoco.MjModel.from_xml_path(model_path)
 data = mujoco.MjData(model)
+mujoco.mj_resetDataKeyframe(model, data, 0)  # Reset the state to keyframe 0
 
-# initial commanded hand pose that angles hand downwards and lightly closes the fingers
-init_ctrl = [0.08, -0.3,
-                0.2, 1.2, 0.2, 0.4, 0,
-                -0.1, 0.6, 2,
-                0.0, 0.4, 2,
-                -0.1, 0.4, 2,
-                0, -0.3, 0.5, 2,]
+# copied from the XML
+init_ctrl = [0, 0,
+             0.24, 1., 0, 0.5, 0.3,
+             0, 0.4, 2.2,
+             0, 1, 2.,
+             0, 1., 3.14,
+             0, 0, 1., 3.14]
 init_ctrl = np.array(init_ctrl)
 data.ctrl[:] = init_ctrl
 
@@ -25,8 +26,8 @@ actuators_enabled = np.arange(model.nu)  # use all actuators
 eps = 0.002  # how much to weigh the "going back to init pose" term
 
 # params for sphere position task with no wrist
-# actuators_enabled = np.arange(2, model.nu)  # disable the first two actuators (they control the wrist)
-# eps = 0.001
+actuators_enabled = np.arange(2, model.nu)  # disable the first two actuators (they control the wrist)
+eps = 0.003
 
 actuator_num = len(actuators_enabled)
 
@@ -67,9 +68,12 @@ object_dof_ids = np.arange(model.body_dofadr[object_id], model.body_dofadr[objec
 object_qpos_ids = np.arange(model.body_jntadr[object_id], model.body_jntadr[object_id] + 7)
 print(f"{object_id=}\n{object_dof_ids=}\n{object_qpos_ids=}")
 
+pen_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "pen")
+assert pen_id != -1, "Pen not found"
+
 # get the indices to access the ghost object (just to show the target pose)
-ghost_object_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "object_ghost")
-assert ghost_object_id != -1, "Ghost object not found"
+# ghost_object_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "object_ghost")
+# assert ghost_object_id != -1, "Ghost object not found"
 
 mujoco.mj_forward(model, data)
 body_init_pose = data.qpos[object_qpos_ids].copy()
@@ -81,6 +85,23 @@ J = np.zeros((3, actuator_num))
 # covariance of the estimated J
 p = np.ones(actuator_num) * 1e-1
 
+def path(t):
+    """
+    when given a parameter t, returns the point on the path at t and the time derivative (i.e. velocity at that point)
+    """
+    a = 0.005
+    offset = np.array([0.09, -0.35, -0.068])
+    x = a * (np.cos(t) / (1 + np.sin(t)**2))
+    y = a * (np.sin(t) * np.cos(t) / (1 + np.sin(t)**2))
+    dx = a*(np.sin(t)**2 - 3)*np.sin(t)/(np.sin(t)**2 + 1)**2
+    dy = a*(1 - 3*np.sin(t)**2)/(np.sin(t)**2 + 1)**2
+
+    x = a * np.cos(t)
+    y = a * np.sin(t)
+    dx = -a * np.sin(t)
+    dy = a * np.cos(t)
+
+    return np.array([x, y, 0]) + offset, np.array([dx, dy, 0])
 
 def check_finger_contact():
     """
@@ -91,14 +112,18 @@ def check_finger_contact():
     finger_contact_detected = np.zeros(5)
     for contact in data.contact:
         collision_body_ids = [model.geom_bodyid[geom] for geom in contact.geom]
-        if object_id in collision_body_ids:
+        if pen_id in collision_body_ids:
             # this contact is with the object; find out if it is in contact with a finger
-            other_body_id = collision_body_ids[0] if collision_body_ids[1] == object_id else collision_body_ids[1]
+            other_body_id = collision_body_ids[0] if collision_body_ids[1] == pen_id else collision_body_ids[1]
             other_body_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, other_body_id)
             for i, finger_name_filter in enumerate(finger_name_filters):
                 if finger_name_filter in other_body_name:
                     finger_contact_detected[i] = 1
                     break
+
+    t = data.time
+    if abs(t % 1) < 1e-6:
+        print(f"{finger_contact_detected=}")
     # print(f"{finger_contact_detected=}")
     return finger_contact_detected
 
@@ -155,6 +180,16 @@ def compute_task_space_vel_cube():
     """
     return data.qvel[object_dof_ids]
 
+def compute_task_space_command_pen():
+    t = data.time
+    target_pos, target_vel = path(t)
+    body_pos = data.xpos[object_id]
+    task_space_vel = (target_pos - body_pos) * 8 + target_vel
+    return task_space_vel
+
+def compute_task_space_vel_pen():
+    return data.sensordata
+
 def control_cb(model, data):
     """
     callback function called on every step, and is used to set the control command
@@ -175,7 +210,7 @@ def control_cb(model, data):
     global J, p
     q = data.qpos[actuated_qpos_ids]
     dq = data.qvel[actuated_dof_ids]
-    u = compute_task_space_vel()
+    u = compute_task_space_vel_pen()
     r = 1e-3  # observation noise variance
 
     # just update the part of the Jacobian that affects the object
@@ -192,7 +227,7 @@ def control_cb(model, data):
     J[:, actuator_affecting_object_ids] = J_slice
     p[actuator_affecting_object_ids] = p_slice
 
-    task_space_vel_desired = compute_task_space_command()
+    task_space_vel_desired = compute_task_space_command_pen()
     # compute the updated commanded joint position which tries to achieve the desired task space vel while bringing it back to initial pose
     dt = model.opt.timestep
     ctrl_0 = init_ctrl[actuators_enabled] - data.ctrl[actuators_enabled]
@@ -207,5 +242,32 @@ def control_cb(model, data):
 
 mujoco.set_mjcb_control(control_cb)
 
+with mujoco.viewer.launch_passive(model, data) as viewer:
+    # how much in the future and past to draw t
+    t_trail_timerange = 1.
+    # how many points to use to draw the future path
+    t_draw_future_num_points = 10
+    # add the required number of geoms to draw the future path
+    scene = viewer.user_scn
+    scene.ngeom += t_draw_future_num_points
 
-viewer.launch(model, data)
+    while viewer.is_running():
+        #### DRAW PAST AND FUTURE PATH ####
+        t = data.time
+        for i in range(t_draw_future_num_points):
+            t_ = t + (t_trail_timerange/2 - t_trail_timerange * i / t_draw_future_num_points)
+            pos, _ = path(t_)
+            rgba = np.array([1., 1., 1., 1. - i / t_draw_future_num_points])
+            if i == t_draw_future_num_points//2:
+                rgba[:] = [1, 0, 0, 1]  # make the current point red
+            mujoco.mjv_initGeom(scene.geoms[scene.ngeom-1-i],
+                mujoco.mjtGeom.mjGEOM_SPHERE,
+                np.array([0.001, 0, 0]),  # size
+                pos,
+                np.eye(3).flatten(),  # rotation
+                rgba,
+            )
+        
+        #### simulate ####
+        mujoco.mj_step(model, data)
+        viewer.sync()
