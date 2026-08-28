@@ -86,9 +86,7 @@ class JacobianCircleController:
 
         self.rng = np.random.RandomState(RANDOM_SEED)
         self.J = np.empty((TASK_DIM, self.actuator_count))
-        self.p = np.empty(self.actuator_count)
         self.prev_delta_q_cmd = np.empty(self.actuator_count)
-        self.prev_q = np.empty(self.actuator_count)  # measured joint angles
         self.prev_x = np.empty(TASK_DIM)  # measured pen-tip position
         self.init_ctrl = np.empty(model.nu)
         self.circle_center = np.empty(3)
@@ -100,9 +98,7 @@ class JacobianCircleController:
     def reset(self):
         """Reset estimator state around the simulation's current grip."""
         self.J[:] = 0.
-        self.p[:] = P_INIT
         self.prev_delta_q_cmd[:] = 0.0
-        self.prev_q[:] = self.data.qpos[self.dof_ids]
         self.prev_x[:] = self.data.xpos[self.pen_tip_id][:TASK_DIM]
         self.init_ctrl[:] = self.data.ctrl
         self.start_time = self.data.time
@@ -125,9 +121,9 @@ class JacobianCircleController:
 
     def _update_jacobian(self, current_velocity, dq):
         """Apply the diagonal-covariance RLS update used by the ROS node."""
-        denominator = self.p @ (dq * dq) + OBS_NOISE
+        denominator = P_INIT * (dq * dq) + OBS_NOISE
         prediction_error = current_velocity - self.J @ dq
-        numerator = prediction_error[:, None] * (self.p * dq)[None, :]
+        numerator = prediction_error[:, None] * (P_INIT * dq)[None, :]
         self.J += numerator / denominator
         # print("Jacobian update:", self.J)
 
@@ -140,11 +136,7 @@ class JacobianCircleController:
         self.decimation_counter = 1
 
         dq_cmd = self.prev_delta_q_cmd / self.dt
-        # compute velocity based on the difference from the previous control step
-        current_q = data.qpos[self.dof_ids]
-        dq = (current_q - self.prev_q) / self.dt
-        # dq = data.qvel[self.dof_ids]
-        self.prev_q[:] = current_q
+        dq = data.qvel[self.dof_ids]
         current_x = data.xpos[self.pen_tip_id][:TASK_DIM]
         dx = (current_x - self.prev_x) / self.dt
         self.prev_x[:] = current_x
