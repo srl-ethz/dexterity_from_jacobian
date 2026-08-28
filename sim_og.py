@@ -137,11 +137,12 @@ def compute_task_space_command():
     phase = data.time * 3
     body_target_pos[:] = body_init_pose[:3] + 0.02 * np.array([np.sin(phase), np.cos(1.4*phase), np.cos(1.3*phase)*0.2])
     body_target_pos[2] -= 0.02
+    body_target_vel = np.array([0.02 * np.cos(phase), -0.02 * 1.4 * np.sin(1.4*phase), -0.02 * 1.3 * np.sin(1.3*phase)*0.2])
     # move the mocap object to the target position for visualization
     data.mocap_pos[:] = body_target_pos
     body_pos = data.xpos[object_id]
     
-    task_space_vel = (body_target_pos - body_pos) * 8
+    task_space_vel = (body_target_pos - body_pos) * 8 + body_target_vel
     return task_space_vel
 
 def compute_task_space_vel():
