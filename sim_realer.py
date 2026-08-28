@@ -31,6 +31,12 @@ PULLBACK_GAIN = 0.5
 # initially excite the joints so an all-zero jacobian can learn from the joint and pen-tip motion before circle tracking starts.
 BOOTSTRAP_DURATION = 2.
 BOOTSTRAP_JNT_VELOCITY_SCALE = 2e-2
+BOOTSTRAP_GROUPS = (
+    (slice(0, 2), 0.5),  # wrist: de-amplify motion during bootstrap
+    (slice(2, 7), 1.0),  # thumb
+    (slice(7, 10), 1.0),  # index
+    (slice(10, 12), 1.0),  # middle
+)
 RANDOM_SEED = 42
 
 
@@ -75,7 +81,6 @@ class JacobianCircleController:
         self.data = data
         self.actuator_ids = _finger_actuator_ids(model)
         self.dof_ids = _actuator_dof_ids(model, self.actuator_ids)
-        self.actuator_count = len(self.actuator_ids)
         self.dt = model.opt.timestep * CONTROL_DECIMATION
 
         self.pen_tip_id = mujoco.mj_name2id(
@@ -85,8 +90,8 @@ class JacobianCircleController:
             raise RuntimeError("Body 'pen_tip' was not found")
 
         self.rng = np.random.RandomState(RANDOM_SEED)
-        self.J = np.empty((TASK_DIM, self.actuator_count))
-        self.prev_delta_q_cmd = np.empty(self.actuator_count)
+        self.J = np.empty((TASK_DIM, self.actuator_ids.size))
+        self.prev_delta_q_cmd = np.empty(self.actuator_ids.size)
         self.prev_x = np.empty(TASK_DIM)  # measured pen-tip position
         self.init_ctrl = np.empty(model.nu)
         self.circle_center = np.empty(3)
@@ -155,7 +160,7 @@ class JacobianCircleController:
         J_pinv = self.J.T @ np.linalg.inv(
             self.J @ self.J.T + DAMPING * np.eye(TASK_DIM)
         )
-        null_projector = np.eye(self.actuator_count) - J_pinv @ self.J
+        null_projector = np.eye(self.actuator_ids.size) - J_pinv @ self.J
         tracking_dq = J_pinv @ commanded_velocity
         pullback = self.init_ctrl[self.actuator_ids] - data.ctrl[self.actuator_ids]
         delta_q = (
@@ -166,22 +171,16 @@ class JacobianCircleController:
         data.ctrl[:] = np.clip(
             data.ctrl, model.actuator_ctrlrange[:, 0], model.actuator_ctrlrange[:, 1]
         )
-        if data.time - self.start_time < BOOTSTRAP_DURATION:
-            # first move the wrist two joints randomly
-            data.ctrl[:] = self.init_ctrl[:]
-            data.ctrl[:2] = self.init_ctrl[:2] + self.rng.randn(2) * BOOTSTRAP_JNT_VELOCITY_SCALE / 2
-        elif data.time - self.start_time < 2 * BOOTSTRAP_DURATION:
-            # then the thumb
-            data.ctrl[:] = self.init_ctrl[:]
-            data.ctrl[2:7] = self.init_ctrl[2:7] + self.rng.randn(5) * BOOTSTRAP_JNT_VELOCITY_SCALE
-        elif data.time - self.start_time < 3 * BOOTSTRAP_DURATION:
-            # then the index
-            data.ctrl[:] = self.init_ctrl[:]
-            data.ctrl[7:10] = self.init_ctrl[7:10] + self.rng.randn(3) * BOOTSTRAP_JNT_VELOCITY_SCALE
-        elif data.time - self.start_time < 4 * BOOTSTRAP_DURATION:
-            # then the middle
-            data.ctrl[:] = self.init_ctrl[:]
-            data.ctrl[10:12] = self.init_ctrl[10:12] + self.rng.randn(2) * BOOTSTRAP_JNT_VELOCITY_SCALE
+        bootstrap_stage = int((data.time - self.start_time) / BOOTSTRAP_DURATION)
+        if bootstrap_stage < len(BOOTSTRAP_GROUPS):
+            # apply random excitation to each bootstrap group
+            group, scale = BOOTSTRAP_GROUPS[bootstrap_stage]
+            data.ctrl[:] = self.init_ctrl
+            data.ctrl[group] += (
+                self.rng.randn(group.stop - group.start)
+                * BOOTSTRAP_JNT_VELOCITY_SCALE
+                * scale
+            )
 
 
         self.prev_delta_q_cmd[:] = delta_q
