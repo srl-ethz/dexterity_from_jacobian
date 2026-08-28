@@ -14,18 +14,18 @@ from mujoco import viewer
 
 
 MODEL_PATH = Path(__file__).with_name("shadow_hand") / "scene_pen_realer.xml"
-CONTROL_DECIMATION = 10  # raise to ~20 later
+CONTROL_DECIMATION = 10  # The controller is run every CONTROL_DECIMATION simulation steps.
 
 # Circle reference and task-space controller.
 CIRCLE_RADIUS = 0.005
 CIRCLE_ANGULAR_SPEED = 0.2
-POSITION_GAIN = 5.
+POSITION_GAIN = 10.
 
 # Jacobian estimator and joint-space controller.
 TASK_DIM = 3
 P_INIT = 0.1
-OBS_NOISE = 1e-3
-CONFIDENCE_FLOOR = 1e-6
+OBS_NOISE = 1e-2
+CONFIDENCE_FLOOR = 1e-3
 CONFIDENCE_FORGETTING_FACTOR = 0.999
 MOTION_THRESHOLD = 1e-4
 DAMPING = 0.005
@@ -35,7 +35,7 @@ COMMAND_EMA_WEIGHT = 0.8
 
 # initially excite the controller so an all-zero jacobian can learn from the
 # resulting joint and pen-tip motion before circle tracking starts.
-BOOTSTRAP_DURATION = 1.
+BOOTSTRAP_DURATION = 2.
 BOOTSTRAP_VELOCITY_SCALE = 5e-2
 RANDOM_SEED = 42
 
@@ -117,6 +117,7 @@ class JacobianCircleController:
         # Keep the circle centered on the pen tip's reset-time position so the
         # path remains within the available writing area.
         self.circle_center[:] = self.data.xpos[self.pen_tip_id]
+        # self.circle_center[2] += 0.005
 
     def circle_reference(self, time):
         """Return circle position and velocity at simulation time ``time``."""
@@ -141,6 +142,7 @@ class JacobianCircleController:
         prediction_error = current_velocity - self.J @ dq
         numerator = prediction_error[:, None] * (self.p * dq)[None, :]
         self.J += numerator / denominator
+        # print("Jacobian update:", self.J)
         self.p[:] = np.maximum(
             self.p * (1.0 - self.p * dq * dq / denominator),
             CONFIDENCE_FLOOR,
