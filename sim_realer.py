@@ -26,11 +26,11 @@ TASK_DIM = 3
 P_INIT = 0.1
 OBS_NOISE = 1e-2
 DAMPING = 0.005
-PULLBACK_GAIN = 0.8
+PULLBACK_GAIN = 0.5
 
 # initially excite the joints so an all-zero jacobian can learn from the joint and pen-tip motion before circle tracking starts.
 BOOTSTRAP_DURATION = 2.
-BOOTSTRAP_JNT_VELOCITY_SCALE = 1e-2
+BOOTSTRAP_JNT_VELOCITY_SCALE = 2e-2
 RANDOM_SEED = 42
 
 
@@ -177,11 +177,20 @@ class JacobianCircleController:
         if data.time - self.start_time < BOOTSTRAP_DURATION:
             # first move the wrist two joints randomly
             data.ctrl[:] = self.init_ctrl[:]
-            data.ctrl[:2] = self.init_ctrl[:2] + self.rng.randn(2) * BOOTSTRAP_JNT_VELOCITY_SCALE
+            data.ctrl[:2] = self.init_ctrl[:2] + self.rng.randn(2) * BOOTSTRAP_JNT_VELOCITY_SCALE / 2
         elif data.time - self.start_time < 2 * BOOTSTRAP_DURATION:
-            # then the fingers
+            # then the thumb
             data.ctrl[:] = self.init_ctrl[:]
-            data.ctrl[self.actuator_ids[2:]] = self.init_ctrl[self.actuator_ids[2:]] + self.rng.randn(self.actuator_count-2) * BOOTSTRAP_JNT_VELOCITY_SCALE
+            data.ctrl[2:7] = self.init_ctrl[2:7] + self.rng.randn(5) * BOOTSTRAP_JNT_VELOCITY_SCALE
+        elif data.time - self.start_time < 3 * BOOTSTRAP_DURATION:
+            # then the index
+            data.ctrl[:] = self.init_ctrl[:]
+            data.ctrl[7:10] = self.init_ctrl[7:10] + self.rng.randn(3) * BOOTSTRAP_JNT_VELOCITY_SCALE
+        elif data.time - self.start_time < 4 * BOOTSTRAP_DURATION:
+            # then the middle
+            data.ctrl[:] = self.init_ctrl[:]
+            data.ctrl[10:12] = self.init_ctrl[10:12] + self.rng.randn(2) * BOOTSTRAP_JNT_VELOCITY_SCALE
+
 
         self.prev_delta_q_cmd[:] = delta_q
 
