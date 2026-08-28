@@ -25,13 +25,8 @@ POSITION_GAIN = 10.
 TASK_DIM = 3
 P_INIT = 0.1
 OBS_NOISE = 1e-2
-CONFIDENCE_FLOOR = 1e-3
-CONFIDENCE_FORGETTING_FACTOR = 0.999
-MOTION_THRESHOLD = 1e-4
 DAMPING = 0.005
 PULLBACK_GAIN = 1.
-MAX_JOINT_VEL = 5.
-COMMAND_EMA_WEIGHT = 0.8
 
 # initially excite the controller so an all-zero jacobian can learn from the
 # resulting joint and pen-tip motion before circle tracking starts.
@@ -134,19 +129,13 @@ class JacobianCircleController:
     def _update_jacobian(self, current_velocity, dq):
         """Apply the diagonal-covariance RLS update used by the ROS node."""
         active = np.abs(dq) > MOTION_THRESHOLD
-        self.p[active] = np.minimum(
-            self.p[active] / CONFIDENCE_FORGETTING_FACTOR, P_INIT
-        )
 
         denominator = self.p @ (dq * dq) + OBS_NOISE
         prediction_error = current_velocity - self.J @ dq
         numerator = prediction_error[:, None] * (self.p * dq)[None, :]
         self.J += numerator / denominator
         # print("Jacobian update:", self.J)
-        self.p[:] = np.maximum(
-            self.p * (1.0 - self.p * dq * dq / denominator),
-            CONFIDENCE_FLOOR,
-        )
+
 
     def control_cb(self, model, data):
         # only run the controller every CONTROL_DECIMATION steps
@@ -191,12 +180,6 @@ class JacobianCircleController:
         delta_q = (
             tracking_dq + PULLBACK_GAIN * null_projector @ pullback
         ) * self.dt
-
-        delta_q = np.clip(delta_q, -MAX_JOINT_VEL * self.dt, MAX_JOINT_VEL * self.dt)
-        delta_q = (
-            COMMAND_EMA_WEIGHT * delta_q
-            + (1.0 - COMMAND_EMA_WEIGHT) * self.prev_delta_q_cmd
-        )
 
         data.ctrl[self.actuator_ids] += delta_q
         data.ctrl[:] = np.clip(
