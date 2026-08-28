@@ -14,6 +14,7 @@ from mujoco import viewer
 
 
 MODEL_PATH = Path(__file__).with_name("shadow_hand") / "scene_pen_realer.xml"
+# simulation is 500Hz (defined in MJCF file)
 CONTROL_DECIMATION = 10  # The controller is run every CONTROL_DECIMATION simulation steps.
 
 # Circle reference and task-space controller.
@@ -31,6 +32,7 @@ PULLBACK_GAIN = 0.5
 # initially excite the joints so an all-zero jacobian can learn from the joint and pen-tip motion before circle tracking starts.
 BOOTSTRAP_DURATION = 2.
 BOOTSTRAP_JNT_VELOCITY_SCALE = 2e-2
+BOOTSTRAP_NOISE_MEMORY = 0.95  # To make the random excitation somewhat smooth. 1 is random walk, 0 is white noise
 BOOTSTRAP_GROUPS = (
     (slice(0, 2), 0.5),  # wrist: de-amplify motion during bootstrap
     (slice(2, 7), 1.0),  # thumb
@@ -94,6 +96,7 @@ class JacobianCircleController:
         self.prev_delta_q_cmd = np.empty(self.actuator_ids.size)
         self.prev_x = np.empty(TASK_DIM)  # measured pen-tip position
         self.init_ctrl = np.empty(model.nu)
+        self.bootstrap_excitation = np.empty(model.nu)
         self.circle_center = np.empty(3)
         self.start_time = 0.0
         self.decimation_counter = CONTROL_DECIMATION
@@ -106,6 +109,7 @@ class JacobianCircleController:
         self.prev_delta_q_cmd[:] = 0.0
         self.prev_x[:] = self.data.xpos[self.pen_tip_id][:TASK_DIM]
         self.init_ctrl[:] = self.data.ctrl
+        self.bootstrap_excitation[:] = 0.0
         self.start_time = self.data.time
         self.decimation_counter = CONTROL_DECIMATION
 
@@ -114,7 +118,7 @@ class JacobianCircleController:
 
     def circle_reference(self, time):
         """Return circle position and velocity at simulation time ``time``."""
-        tracking_time = max(time - self.start_time - BOOTSTRAP_DURATION, 0.0)
+        tracking_time = max(time - self.start_time - len(BOOTSTRAP_GROUPS) * BOOTSTRAP_DURATION, 0.0)
         phase = CIRCLE_ANGULAR_SPEED * tracking_time - np.pi / 2.0
         offset = CIRCLE_RADIUS * np.array(
             [np.cos(phase), np.sin(phase), 0.0]
@@ -173,14 +177,16 @@ class JacobianCircleController:
         )
         bootstrap_stage = int((data.time - self.start_time) / BOOTSTRAP_DURATION)
         if bootstrap_stage < len(BOOTSTRAP_GROUPS):
-            # apply random excitation to each bootstrap group
+            # Smooth random excitation: correlated noise avoids abrupt target jumps.
             group, scale = BOOTSTRAP_GROUPS[bootstrap_stage]
-            data.ctrl[:] = self.init_ctrl
-            data.ctrl[group] += (
+            self.bootstrap_excitation *= BOOTSTRAP_NOISE_MEMORY
+            self.bootstrap_excitation[group] += (
                 self.rng.randn(group.stop - group.start)
                 * BOOTSTRAP_JNT_VELOCITY_SCALE
                 * scale
+                * np.sqrt(1.0 - BOOTSTRAP_NOISE_MEMORY**2)
             )
+            data.ctrl[:] = self.init_ctrl + self.bootstrap_excitation
 
 
         self.prev_delta_q_cmd[:] = delta_q
