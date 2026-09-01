@@ -33,7 +33,7 @@
     <mesh name="r_pinky_tip_sensor_frame" content_type="model/stl" file="r_pinky_tip_sensor_frame.STL" />
   </asset>
   <worldbody>
-    <body name="r_wrist" pos="0.15 0 0" euler="0 -1.5707 0.5235">
+    <body name="r_wrist" pos="0.15 0 0" euler="0 -1.5707 0.7853">
       <inertial pos="-0.00354289960216 -0.00346747236064 -0.0356950477108" mass="0.2323" quat="0.10780268 0.69274370 0.71186097 0.04169786" diaginertia="1.55670709e-04 9.95644502e-05 7.71545957e-05" />
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.75 0.75 0.75 1" mesh="r_wrist" />
       <geom type="mesh" rgba="0.8 0.6 1 0.3" mesh="r_wrist" group="2" />
