@@ -38,7 +38,20 @@ def _name(model, object_type, object_id):
 
 
 class JacobianCircleController:
-    def __init__(self, model, data, actuator_ids, dof_ids, excitation_groups):
+    def __init__(
+        self,
+        model,
+        data,
+        actuator_ids,
+        dof_ids,
+        excitation_groups,
+        *,
+        observation_noise=OBS_NOISE,
+        damping=DAMPING,
+        pullback_gain=PULLBACK_GAIN,
+        position_gain=POSITION_GAIN,
+        excitation_velocity_scale=EXCITATION_JNT_VELOCITY_SCALE,
+    ):
         """
         Args:
             model: MuJoCo model
@@ -46,6 +59,11 @@ class JacobianCircleController:
             actuator_ids: indices of actuators to control
             dof_ids: indices of the degrees of freedom corresponding to the actuators (differs from the actuator IDs for some models)
             excitation_groups: which groups of actuators to randomly shake together during initial excitation phase
+            observation_noise: regularization used by the Jacobian estimator
+            damping: regularization used by the damped pseudoinverse
+            pullback_gain: strength of the null-space pull toward the initial grip
+            position_gain: proportional gain for pen-tip position tracking
+            excitation_velocity_scale: magnitude of the bootstrap joint excitation
         """
         self.model = model
         self.data = data
@@ -53,6 +71,11 @@ class JacobianCircleController:
         self.dof_ids = dof_ids
         self.excitation_groups = excitation_groups
         self.dt = model.opt.timestep * CONTROL_DECIMATION
+        self.observation_noise = observation_noise
+        self.damping = damping
+        self.pullback_gain = pullback_gain
+        self.position_gain = position_gain
+        self.excitation_velocity_scale = excitation_velocity_scale
 
         actuator_names = [
             _name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_id)
@@ -69,7 +92,6 @@ class JacobianCircleController:
 
         self.rng = np.random.RandomState(RANDOM_SEED)
         self.J = np.empty((TASK_DIM, self.actuator_ids.size))
-        self.prev_delta_q_cmd = np.empty(self.actuator_ids.size)
         self.prev_x = np.empty(TASK_DIM)  # measured pen-tip position
         self.init_ctrl = np.empty(model.nu)
         self.excitation_ctrl = np.empty(model.nu)
@@ -82,7 +104,6 @@ class JacobianCircleController:
     def reset(self):
         """Reset estimator state around the simulation's current grip."""
         self.J[:] = 0.
-        self.prev_delta_q_cmd[:] = 0.0
         self.prev_x[:] = self.data.xpos[self.pen_tip_id][:TASK_DIM]
         self.init_ctrl[:] = self.data.ctrl
         self.excitation_ctrl[:] = 0.0
@@ -107,7 +128,7 @@ class JacobianCircleController:
 
     def _update_jacobian(self, current_velocity, dq):
         """Apply the diagonal-covariance RLS update used by the ROS node."""
-        denominator = P_CONST * (dq * dq) + OBS_NOISE
+        denominator = P_CONST * (dq * dq) + self.observation_noise
         prediction_error = current_velocity - self.J @ dq
         numerator = prediction_error[:, None] * (P_CONST * dq)[None, :]
         self.J += numerator / denominator
@@ -120,7 +141,6 @@ class JacobianCircleController:
             return
         self.decimation_counter = 1
 
-        dq_cmd = self.prev_delta_q_cmd / self.dt
         dq = data.qvel[self.dof_ids]
         current_x = data.xpos[self.pen_tip_id][:TASK_DIM]
         dx = (current_x - self.prev_x) / self.dt
@@ -132,18 +152,18 @@ class JacobianCircleController:
         target_position, target_velocity = self.circle_reference(data.time)
         position_error = target_position[:TASK_DIM] - current_x
         commanded_velocity = (
-            POSITION_GAIN * position_error + target_velocity[:TASK_DIM]
+            self.position_gain * position_error + target_velocity[:TASK_DIM]
         )
 
         # Damped pseudoinverse and null-space pullback, matching the ROS node.
         J_pinv = self.J.T @ np.linalg.inv(
-            self.J @ self.J.T + DAMPING * np.eye(TASK_DIM)
+            self.J @ self.J.T + self.damping * np.eye(TASK_DIM)
         )
         null_projector = np.eye(self.actuator_ids.size) - J_pinv @ self.J
         tracking_dq = J_pinv @ commanded_velocity
         pullback = self.init_ctrl[self.actuator_ids] - data.ctrl[self.actuator_ids]
         delta_q = (
-            tracking_dq + PULLBACK_GAIN * null_projector @ pullback
+            tracking_dq + self.pullback_gain * null_projector @ pullback
         ) * self.dt
 
         data.ctrl[self.actuator_ids] += delta_q
@@ -160,7 +180,7 @@ class JacobianCircleController:
             self.excitation_ctrl *= EXCITATION_NOISE_MEMORY
             self.excitation_ctrl[group] += (
                 self.rng.randn(group.stop - group.start)
-                * EXCITATION_JNT_VELOCITY_SCALE
+                * self.excitation_velocity_scale
                 * np.sqrt(1.0 - EXCITATION_NOISE_MEMORY**2)
             )
             data.ctrl[:] = self.init_ctrl + self.excitation_ctrl
@@ -170,7 +190,6 @@ class JacobianCircleController:
                 self.prev_excitation_stage += 1
 
 
-        self.prev_delta_q_cmd[:] = delta_q
 
 
 def _draw_marker(scene, geom_id, position, color, radius):
