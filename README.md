@@ -1,29 +1,27 @@
 # dexterity_from_jacobian
 
-## Circle-tracking experiment
-
-Run two circle loops headlessly for both hands and write the desired and
-measured pen-tip positions to CSV:
+## Installation
 
 ```bash
-python experiments/run_circle_tracking.py
+# make venv and activate it
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-The default outputs are
-`experiments/results/shadow_hand_circle_tracking.csv` and
-`experiments/results/wuji_hand_circle_tracking.csv`. Samples are written at the
-controller rate (50 Hz); use `--sample-every 1` to record every MuJoCo step.
+## Run the MuJoCo controller
+Draws a circle as a demo of the Jacobian dexterity controller.
 
-Compute RMSE, mean, median, 95th-percentile, maximum and per-axis RMSE, then
-create a 3D trajectory plot and error-over-time plot for each hand:
+![](images/shadow_hand_sim.gif)
 
 ```bash
-python experiments/plot_circle_tracking.py
+# for Shadow Hand sample
+python sim.py
+
+# for Wuji Hand 2 sample
+python sim_wuji_hand_2.py
 ```
 
-The numerical summary is saved to
-`experiments/results/circle_tracking_stats.csv`. Pass `--help` to either script
-for hand selection, alternate loop counts, input paths, and output locations.
         
 ## How to apply controller to new robot hand models
 
@@ -41,5 +39,10 @@ Steps to make a scene in which the hand holds a pen, defined by a keyframe. The 
 1. set good-looking "writing" hand pose manually by adjusting the **Control** sliders in the MuJoCo GUI (ignore the pen for now)
     - once you're satisfied, "Copy state" from the GUI and fill in the `ctrl` fields for your keyframe
 1. move the pen into the hand- the pen can be moved kinematically by pausing, double clicking the pen, and dragging it while pressing ctrl (right drag to rotate, left drag to move)
-1. adjust the pen's grip in the hand- be patient!
-1. finally, "Copy Pose" again and paste both the `ctrl` and `qpod` fields to your keyframe (don't copy the `time` field, the time is used to detect resets in the code)
+1. adjust the pen's grip in the hand (by going back and forth between modifying the **Control** sliders and pausing & moving the pen kinematically)
+1. "Copy Pose" again and paste both the `ctrl` and `qpod` fields to your keyframe (don't copy the `time` field, the time is used to detect resets in the code), so that the robot and pen take the correct pose the moment the keyframe is loaded.
+
+### make the controller script `sim_<your robot>.py`
+
+1. make the sim script for your robot - use `sim_wuji_hand_2.py` as reference.
+1. you may have try around a lot to adjust parameters like the robot & pen pose and control params until you get a combination that works- be patient!
