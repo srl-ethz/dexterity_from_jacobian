@@ -76,9 +76,6 @@ class JacobianCircleController:
         self.pullback_gain = pullback_gain
         self.position_gain = position_gain
         self.excitation_velocity_scale = excitation_velocity_scale
-        self.circle_radius = circle_radius
-        self.circle_angular_speed = circle_angular_speed
-        self.excitation_step_duration = EXCITATION_STEP_DURATION
 
         actuator_names = [
             _name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_id)
@@ -100,6 +97,7 @@ class JacobianCircleController:
         self.excitation_ctrl = np.empty(model.nu)
         self.circle_center = np.empty(3)
         self.start_time = 0.0
+        self.tracking_start_time = EXCITATION_STEP_DURATION * len(self.excitation_groups)
         self.decimation_counter = CONTROL_DECIMATION
         mujoco.mj_forward(self.model, self.data)
         self.reset()
@@ -119,7 +117,7 @@ class JacobianCircleController:
 
     def circle_reference(self, time):
         """Return circle position and velocity at simulation time ``time``."""
-        tracking_time = max(time - self.start_time - len(self.excitation_groups) * EXCITATION_STEP_DURATION, 0.0)
+        tracking_time = max(time - self.start_time - self.tracking_start_time, 0.0)
         phase = CIRCLE_ANGULAR_SPEED * tracking_time
         offset = CIRCLE_RADIUS * np.array(
             [np.cos(phase), np.sin(phase), 0.0]

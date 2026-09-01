@@ -14,7 +14,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from sim import CONTROL_DECIMATION, create_shadow_hand_sim  # noqa: E402
+from sim import CONTROL_DECIMATION, CIRCLE_ANGULAR_SPEED, create_shadow_hand_sim  # noqa: E402
 from sim_wuji_hand_2 import create_wuji_hand_sim  # noqa: E402
 
 
@@ -53,7 +53,7 @@ def _sample_row(hand, sample, data, controller):
         "simulation_time_s": data.time,
         "tracking_time_s": tracking_time,
         "loop_progress": (
-            controller.circle_angular_speed * tracking_time / (2.0 * np.pi)
+            CIRCLE_ANGULAR_SPEED * tracking_time / (2.0 * np.pi)
         ),
         "desired_x_m": desired[0],
         "desired_y_m": desired[1],
@@ -79,7 +79,7 @@ def run_hand(hand, output_path, loops=3.0, sample_every=CONTROL_DECIMATION):
 
     model, data, controller = HAND_FACTORIES[hand]()
     simulation_dt = float(model.opt.timestep)
-    tracking_duration = loops * 2.0 * np.pi / controller.circle_angular_speed
+    tracking_duration = loops * 2.0 * np.pi / CIRCLE_ANGULAR_SPEED
     # A circle period is not generally an integer number of MuJoCo steps. Use
     # ceil so the recorded run always completes at least the requested loops.
     tracking_steps = int(np.ceil(tracking_duration / simulation_dt))
@@ -87,7 +87,7 @@ def run_hand(hand, output_path, loops=3.0, sample_every=CONTROL_DECIMATION):
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     print(
-        f"Running {hand}: {controller.excitation_duration:g} s excitation, "
+        f"Running {hand} excitation, "
         f"{tracking_duration:.3f} s tracking ({loops:g} loops)"
     )
     mujoco.set_mjcb_control(controller.control_cb)
