@@ -91,7 +91,7 @@ class JacobianCircleController:
         self.decimation_counter = CONTROL_DECIMATION
 
         # the initial pen position should be the top of the circle that it draws
-        self.circle_center[:] = self.data.xpos[self.pen_tip_id] + np.array([0.0, CIRCLE_RADIUS, 0.0])
+        self.circle_center[:] = self.data.xpos[self.pen_tip_id] + np.array([-CIRCLE_RADIUS, 0.0, 0.0])
 
     def circle_reference(self, time):
         """Return circle position and velocity at simulation time ``time``."""
@@ -192,7 +192,7 @@ def run_viewer(model, data, controller):
         sim_viewer.cam.distance = 0.4
         sim_viewer.cam.azimuth = -150
         sim_viewer.cam.elevation = -50
-        sim_viewer.cam.lookat = [0.2, -0.2, 0]
+        sim_viewer.cam.lookat = [0.35, 0., -0.1]
 
         scene = sim_viewer.user_scn
         geom_start = scene.ngeom
