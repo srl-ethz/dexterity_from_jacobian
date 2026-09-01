@@ -1,0 +1,33 @@
+<mujoco model="tilted_wujihand2-beta2-right">
+  <compiler angle="degree"/>
+  <option timestep="0.002" iterations="100" noslip_iterations="5" tolerance="0" noslip_tolerance="0"/>
+
+  <asset>
+    <model name="wuji_hand_right" file="right.xml"/>
+    <texture type="skybox" builtin="gradient" rgb1="1 1 1" rgb2="1 1 1" width="512" height="3072"/>
+  </asset>
+  <include file="right_tilted.xml"/>
+
+  <keyframe>
+    <key
+      qpos="0.750579 -0.017623 0.523162 -0.0032474 0.224974 0.236775 0.95918 0.713979 0.686011 -0.0313767 1.32267 0.927471 1.50373 -0.0482582 1.51778 1.12455 1.15585 0.0822863 1.65706 1.09809 0.257127 0.0388029 0.00525123 -0.481458 -0.306059 -0.128608 0.811164"
+      qvel="-0.000111013 6.15193e-05 -0.000314978 -0.000173448 0.000240758 -0.000223668 0.000238944 0.000106945 4.13351e-06 0.000427616 0.000101462 -8.26689e-06 -2.11191e-14 -1.03128e-15 3.92745e-14 2.52399e-14 7.43445e-15 -1.66342e-15 1.46838e-14 1.3862e-14 1.17201e-05 1.0832e-05 -1.38502e-05 -0.00133768 -2.16298e-05 0.00421019"
+      ctrl="0.68389 0.01067 0.510115 0 0.18299 0.19544 0.96324 0.719475 0.65405 -0.08376 1.32445 0.928835 1.51766 -0.08376 1.52862 1.12511 1.16437 0.05584 1.66996 1.09894"
+    />
+  </keyframe>
+  
+  <worldbody>
+    <light pos="0 0 1"/>
+
+    <body name="pen">
+      <freejoint/>
+      <!-- Main pen body that the robot will grip -->
+      <geom type="capsule" size="0.007 0.065" priority="1" friction="1.5 0.01 0.003" contype="5" conaffinity="5"/> 
+      <!-- smaller pen body just for aesthetics -->
+      <geom type="capsule" size="0.004 0.0075" pos="0 0 -0.0725"/>
+      <body name="pen_tip" pos="0 0 -0.084"> 
+        <geom type="sphere" size="0.001" mass="0.00" rgba="1 0 0 1" friction="0.1 0.0 0.0" contype="5" conaffinity="5"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
