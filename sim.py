@@ -122,7 +122,7 @@ class JacobianCircleController:
 
         dq_cmd = self.prev_delta_q_cmd / self.dt
         dq = data.qvel[self.dof_ids]
-        current_x = data.xpos[self.pen_tip_id]
+        current_x = data.xpos[self.pen_tip_id][:TASK_DIM]
         dx = (current_x - self.prev_x) / self.dt
         self.prev_x[:] = current_x
         
@@ -130,9 +130,9 @@ class JacobianCircleController:
         self._update_jacobian(dx, dq)
 
         target_position, target_velocity = self.circle_reference(data.time)
-        position_error = target_position - current_x
+        position_error = target_position[:TASK_DIM] - current_x
         commanded_velocity = (
-            POSITION_GAIN * position_error + target_velocity
+            POSITION_GAIN * position_error + target_velocity[:TASK_DIM]
         )
 
         # Damped pseudoinverse and null-space pullback, matching the ROS node.
