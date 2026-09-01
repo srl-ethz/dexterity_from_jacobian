@@ -16,7 +16,8 @@ WUJI_POSITION_GAIN = 10.0
 WUJI_EXCITATION_VELOCITY_SCALE = 1.5e-2
 
 
-def main():
+def create_wuji_hand_sim():
+    """Create the reset Wuji Hand model, data, and tuned circle controller."""
     model = mujoco.MjModel.from_xml_path(
         str(Path(__file__).with_name("wuji_hand_2") / "scene_pen.xml")
     )
@@ -48,6 +49,11 @@ def main():
         position_gain=WUJI_POSITION_GAIN,
         excitation_velocity_scale=WUJI_EXCITATION_VELOCITY_SCALE,
     )
+    return model, data, controller
+
+
+def main():
+    model, data, controller = create_wuji_hand_sim()
 
     mujoco.set_mjcb_control(controller.control_cb)
     try:

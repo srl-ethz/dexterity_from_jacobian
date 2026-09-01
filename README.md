@@ -1,4 +1,29 @@
 # dexterity_from_jacobian
+
+## Circle-tracking experiment
+
+Run two circle loops headlessly for both hands and write the desired and
+measured pen-tip positions to CSV:
+
+```bash
+python experiments/run_circle_tracking.py
+```
+
+The default outputs are
+`experiments/results/shadow_hand_circle_tracking.csv` and
+`experiments/results/wuji_hand_circle_tracking.csv`. Samples are written at the
+controller rate (50 Hz); use `--sample-every 1` to record every MuJoCo step.
+
+Compute RMSE, mean, median, 95th-percentile, maximum and per-axis RMSE, then
+create a 3D trajectory plot and error-over-time plot for each hand:
+
+```bash
+python experiments/plot_circle_tracking.py
+```
+
+The numerical summary is saved to
+`experiments/results/circle_tracking_stats.csv`. Pass `--help` to either script
+for hand selection, alternate loop counts, input paths, and output locations.
         
 ## How to apply controller to new robot hand models
 

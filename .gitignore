@@ -162,3 +162,6 @@ cython_debug/
 #.idea/
 venv/
 jacobi_venv/
+
+# Generated experiment data and plots
+experiments/results/

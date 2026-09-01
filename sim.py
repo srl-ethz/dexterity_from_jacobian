@@ -1,7 +1,7 @@
 """Minimal MuJoCo demo of online Jacobian estimation and circle tracking.
 
 The estimator and controller mirror ``dex_controller_node.py``: a diagonal
-RLS covariance estimates a two-dimensional control Jacobian, and a damped
+RLS covariance estimates a three-dimensional control Jacobian, and a damped
 pseudoinverse plus null-space pullback produces joint-position increments.
 Only the thumb, index, and middle finger actuators participate.
 """
@@ -76,6 +76,9 @@ class JacobianCircleController:
         self.pullback_gain = pullback_gain
         self.position_gain = position_gain
         self.excitation_velocity_scale = excitation_velocity_scale
+        self.circle_radius = circle_radius
+        self.circle_angular_speed = circle_angular_speed
+        self.excitation_step_duration = EXCITATION_STEP_DURATION
 
         actuator_names = [
             _name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_id)
@@ -250,9 +253,26 @@ def run_viewer(model, data, controller):
             sim_viewer.sync()
 
 
-def main():
-    # load the model and reset the simulation
-    shadow_hand_model = mujoco.MjModel.from_xml_path(str(Path(__file__).with_name("shadow_hand") / "scene_pen.xml"))
+def shadow_hand_actuator2dof_ids(model, actuator_ids):
+    """Map Shadow Hand actuator names to the joint velocities they control."""
+    dof_ids = []
+    for actuator_id in actuator_ids:
+        actuator_name = _name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_id)
+        joint_name = actuator_name.replace("_A_", "_").replace("J0", "J1")
+        joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
+        if joint_id == -1:
+            raise RuntimeError(
+                f"Could not map actuator {actuator_name!r} to joint {joint_name!r}"
+            )
+        dof_ids.append(model.jnt_dofadr[joint_id])
+    return np.asarray(dof_ids, dtype=int)
+
+
+def create_shadow_hand_sim():
+    """Create the reset Shadow Hand model, data, and circle controller."""
+    shadow_hand_model = mujoco.MjModel.from_xml_path(
+        str(Path(__file__).with_name("shadow_hand") / "scene_pen.xml")
+    )
     shadow_hand_data = mujoco.MjData(shadow_hand_model)
     mujoco.mj_resetDataKeyframe(shadow_hand_model, shadow_hand_data, 0)
 
@@ -265,24 +285,22 @@ def main():
     )
     shadow_hand_actuator_ids = np.arange(13)
 
-    def shadow_hand_actuator2dof_ids(model, actuator_ids):
-        """Map Shadow Hand actuator names to the joint velocities they control."""
-        dof_ids = []
-        for actuator_id in actuator_ids:
-            actuator_name = _name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_id)
-            joint_name = actuator_name.replace("_A_", "_").replace("J0", "J1")
-            joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
-            if joint_id == -1:
-                raise RuntimeError(
-                    f"Could not map actuator {actuator_name!r} to joint {joint_name!r}"
-                )
-            dof_ids.append(model.jnt_dofadr[joint_id])
-        return np.asarray(dof_ids, dtype=int)
-    shadow_hand_dof_ids = shadow_hand_actuator2dof_ids(shadow_hand_model, shadow_hand_actuator_ids)
+    shadow_hand_dof_ids = shadow_hand_actuator2dof_ids(
+        shadow_hand_model, shadow_hand_actuator_ids
+    )
 
     controller = JacobianCircleController(
-        shadow_hand_model, shadow_hand_data, shadow_hand_actuator_ids, shadow_hand_dof_ids, shadow_hand_excitation_groups
+        shadow_hand_model,
+        shadow_hand_data,
+        shadow_hand_actuator_ids,
+        shadow_hand_dof_ids,
+        shadow_hand_excitation_groups,
     )
+    return shadow_hand_model, shadow_hand_data, controller
+
+
+def main():
+    shadow_hand_model, shadow_hand_data, controller = create_shadow_hand_sim()
 
     mujoco.set_mjcb_control(controller.control_cb)
     try:
