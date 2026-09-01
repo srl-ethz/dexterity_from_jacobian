@@ -46,3 +46,4 @@ Steps to make a scene in which the hand holds a pen, defined by a keyframe. The 
 
 1. make the sim script for your robot - use `sim_wuji_hand_2.py` as reference.
 1. you may have try around a lot to adjust parameters like the robot & pen pose and control params until you get a combination that works- be patient!
+    - robot hands with wrist DoFs (like the Shadow Hand) should generally have better performance for writing
