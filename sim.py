@@ -23,13 +23,13 @@ OBS_NOISE = 1e-2
 
 # Parameters for inverse Jacobian based controller
 CONTROL_DECIMATION = 10  # The controller is run every CONTROL_DECIMATION simulation steps.
-DAMPING = 0.005
-PULLBACK_GAIN = 0.5
-POSITION_GAIN = 10.
+DAMPING = 0.0025
+PULLBACK_GAIN = 0.1
+POSITION_GAIN = 20.
 
 # initially excite the joints so an all-zero jacobian can learn from the joint and pen-tip motion before circle tracking starts.
 EXCITATION_STEP_DURATION = 2.
-EXCITATION_JNT_VELOCITY_SCALE = 2e-2
+EXCITATION_JNT_VELOCITY_SCALE = 1e-2
 EXCITATION_NOISE_MEMORY = 0.95  # To make the random excitation somewhat smooth. 1 is random walk, 0 is white noise
 RANDOM_SEED = 42
 
