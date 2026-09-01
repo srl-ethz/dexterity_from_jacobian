@@ -212,7 +212,8 @@ def run_viewer(model, data, controller):
         sim_viewer.cam.distance = 0.4
         sim_viewer.cam.azimuth = -150
         sim_viewer.cam.elevation = -50
-        sim_viewer.cam.lookat = [0.35, 0., -0.1]
+        # Aim at the pen tip's initial position
+        sim_viewer.cam.lookat[:] = data.xpos[controller.pen_tip_id]
 
         scene = sim_viewer.user_scn
         geom_start = scene.ngeom
@@ -279,7 +280,7 @@ def create_shadow_hand_sim():
         slice(0, 2),  # wrist
         slice(2, 7),  # thumb
         slice(7, 10),  # index
-        slice(10, 12),  # middle
+        slice(10, 13),  # middle
     )
     shadow_hand_actuator_ids = np.arange(13)
 
