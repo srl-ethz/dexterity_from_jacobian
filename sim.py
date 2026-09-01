@@ -96,7 +96,7 @@ class JacobianCircleController:
     def circle_reference(self, time):
         """Return circle position and velocity at simulation time ``time``."""
         tracking_time = max(time - self.start_time - len(self.excitation_groups) * EXCITATION_STEP_DURATION, 0.0)
-        phase = CIRCLE_ANGULAR_SPEED * tracking_time - np.pi / 2.0
+        phase = CIRCLE_ANGULAR_SPEED * tracking_time
         offset = CIRCLE_RADIUS * np.array(
             [np.cos(phase), np.sin(phase), 0.0]
         )
