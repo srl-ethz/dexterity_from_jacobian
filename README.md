@@ -1,4 +1,18 @@
 # dexterity_from_jacobian
+Open-source implementation for paper: **Rapid Learning of Dexterous In-Hand Pen Writing through Real-Time Jacobian Estimation**
+
+## Simulation-specific implementation details
+
+Some elements from the original controller were simplified / modified for the MuJoCo implementation:
+
+- Diagonal covariance matrix $diag(\mathbf p)$ is a constant scalar $P$
+- Estimator regressor uses measured MuJoCo joint velocity instead of delta of commanded velocity
+    - since we can get ground-truth noise-less joint data in simulation
+- Initial excitation is random noise applied to predefined joint groups
+    - difficult to set predefined postures to interpolate in simulation, where the hand-pen system can't be moved by (human) hand, so this random excitation method was applied
+- Task-space command is P + feedforward velocity (I and D terms removed)
+    - also no EMA filtering for the control output
+- 500 Hz simulation, 50 Hz controller
 
 ## Installation
 
