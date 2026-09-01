@@ -129,7 +129,7 @@ class JacobianCircleController:
 
     def _update_jacobian(self, current_velocity, dq):
         """Apply the diagonal-covariance RLS update used by the ROS node."""
-        denominator = P_CONST * (dq * dq) + self.observation_noise
+        denominator = P_CONST * np.sum(dq * dq) + self.observation_noise
         prediction_error = current_velocity - self.J @ dq
         numerator = prediction_error[:, None] * (P_CONST * dq)[None, :]
         self.J += numerator / denominator
