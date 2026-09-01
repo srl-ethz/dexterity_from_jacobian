@@ -32,7 +32,7 @@
       <!-- Main pen body that the robot will grip -->
       <geom type="capsule" size="0.007 0.065" priority="1" friction="1.5 0.01 0.003" contype="5" conaffinity="5"/> 
       <!-- smaller pen body just for aesthetics -->
-      <geom type="capsule" size="0.004 0.0075" pos="0 0 -0.0725"/>
+      <geom type="capsule" size="0.004 0.0075" mass="0" pos="0 0 -0.0725"/>
       <body name="pen_tip" pos="0 0 -0.084"> 
         <geom type="sphere" size="0.001" mass="0.00" rgba="1 0 0 1" friction="0.1 0.0 0.0" contype="5" conaffinity="5"/>
       </body>

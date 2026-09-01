@@ -9,9 +9,9 @@ from sim import JacobianCircleController, run_viewer
 # Shadow's wrist-assisted grasp. These values were tuned over complete circles,
 # and the learning cutoff prevents late contact changes from corrupting an
 # already useful estimate.
-WUJI_OBSERVATION_NOISE = 1e-3
-WUJI_DAMPING = 1.5e-3
-WUJI_PULLBACK_GAIN = 0.2
+WUJI_OBSERVATION_NOISE = 1e-2
+WUJI_DAMPING = 5e-3
+WUJI_PULLBACK_GAIN = 0.5
 WUJI_POSITION_GAIN = 10.0
 WUJI_EXCITATION_VELOCITY_SCALE = 1.5e-2
 
