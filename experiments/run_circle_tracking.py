@@ -127,7 +127,7 @@ def parse_args():
     parser.add_argument(
         "--loops",
         type=float,
-        default=2.0,
+        default=3.0,
         help="number of reference-circle loops (default: 3)",
     )
     parser.add_argument(
