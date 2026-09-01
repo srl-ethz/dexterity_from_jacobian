@@ -5,10 +5,6 @@ import numpy as np
 
 from sim import JacobianCircleController, run_viewer
 
-# Wuji's fixed wrist makes the finger/pen contact Jacobian more sensitive than
-# Shadow's wrist-assisted grasp. These values were tuned over complete circles,
-# and the learning cutoff prevents late contact changes from corrupting an
-# already useful estimate.
 WUJI_OBSERVATION_NOISE = 1e-2
 WUJI_DAMPING = 5e-3
 WUJI_PULLBACK_GAIN = 0.8
