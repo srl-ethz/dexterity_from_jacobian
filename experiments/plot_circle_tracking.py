@@ -121,7 +121,7 @@ def plot_error(data, output_path, title, stats, y_limits):
     axis.text(
         0.98,
         rmse_mm,
-        f"RSME={rmse_mm:.2f}mm",
+        f"RMSE={rmse_mm:.2f}mm",
         color="tab:red",
         ha="right",
         va="bottom",
