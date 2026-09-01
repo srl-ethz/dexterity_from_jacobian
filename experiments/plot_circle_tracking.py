@@ -94,32 +94,42 @@ def plot_trajectory(data, output_path, title):
     plt.close(figure)
 
 
-def plot_error(data, output_path, title, stats):
+def plot_error(data, output_path, title, stats, y_limits):
     desired = _positions(data, "desired")
     measured = _positions(data, "measured")
     error_mm = (measured - desired) * 1e3
     error_norm_mm = np.linalg.norm(error_mm, axis=1)
     time = data["tracking_time_s"] - data["tracking_time_s"][0]
 
-    figure, axis = plt.subplots(figsize=(9, 4.8))
-    axis.plot(time, error_norm_mm, color="black", linewidth=1.3, label="3D error norm")
+    figure, axis = plt.subplots(figsize=(4, 2.5))
+    axis.plot(time, error_norm_mm, color="black", linewidth=1.3, label=r"$||e||_2$")
     for index, coordinate in enumerate("xyz"):
         axis.plot(
             time,
             error_mm[:, index],
             linewidth=0.8,
             alpha=0.65,
-            label=f"{coordinate} error",
+            label=rf"$e_{coordinate}$",
         )
+    rmse_mm = stats["rmse_m"] * 1e3
     axis.axhline(
-        stats["rmse_m"] * 1e3,
+        rmse_mm,
         color="tab:red",
-        linestyle="--",
+        linestyle=":",
         linewidth=1.0,
-        label=f"3D RMSE = {stats['rmse_m'] * 1e3:.2f} mm",
     )
+    axis.text(
+        0.98,
+        rmse_mm,
+        f"RSME={rmse_mm:.2f}mm",
+        color="tab:red",
+        ha="right",
+        va="bottom",
+        transform=axis.get_yaxis_transform(),
+    )
+    axis.set_ylim(y_limits)
     axis.set_xlabel("tracking time [s]")
-    axis.set_ylabel("measured - desired [mm]")
+    axis.set_ylabel("tracking error [mm]")
     axis.set_title(f"{title}: tracking error over time")
     axis.grid(alpha=0.25)
     axis.legend(ncol=2)
@@ -128,14 +138,31 @@ def plot_error(data, output_path, title, stats):
     plt.close(figure)
 
 
-def analyse_file(csv_path, output_dir):
-    data = load_tracking_csv(csv_path)
+def analyse_file(csv_path, data, output_dir, error_y_limits):
     stats = compute_stats(data)
     title = csv_path.stem.replace("_", " ").title()
     stem = csv_path.stem
     plot_trajectory(data, output_dir / f"{stem}_trajectory_3d.png", title)
-    plot_error(data, output_dir / f"{stem}_error_over_time.png", title, stats)
+    plot_error(
+        data,
+        output_dir / f"{stem}_error_over_time.pdf",
+        title,
+        stats,
+        error_y_limits,
+    )
     return {"dataset": stem, **stats}
+
+
+def _shared_error_y_limits(datasets):
+    error_values_mm = []
+    for data in datasets:
+        error_mm = (_positions(data, "measured") - _positions(data, "desired")) * 1e3
+        error_values_mm.extend((error_mm.ravel(), np.linalg.norm(error_mm, axis=1)))
+
+    low = min(float(values.min()) for values in error_values_mm)
+    high = max(float(values.max()) for values in error_values_mm)
+    margin = max((high - low) * 0.05, 0.1)
+    return low - margin, high + margin
 
 
 def write_summary(rows, path):
@@ -195,7 +222,12 @@ def main():
         raise SystemExit(f"CSV file not found: {missing[0]}")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    rows = [analyse_file(path, args.output_dir) for path in csv_files]
+    datasets = [load_tracking_csv(path) for path in csv_files]
+    error_y_limits = _shared_error_y_limits(datasets)
+    rows = [
+        analyse_file(path, data, args.output_dir, error_y_limits)
+        for path, data in zip(csv_files, datasets)
+    ]
     summary_path = args.output_dir / "circle_tracking_stats.csv"
     write_summary(rows, summary_path)
     print_summary(rows)
