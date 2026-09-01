@@ -12,78 +12,54 @@ import mujoco
 import numpy as np
 from mujoco import viewer
 
-
-MODEL_PATH = Path(__file__).with_name("shadow_hand") / "scene_pen.xml"
-# simulation is 500Hz (defined in MJCF file)
-CONTROL_DECIMATION = 10  # The controller is run every CONTROL_DECIMATION simulation steps.
-
-# Circle reference and task-space controller.
+# Parameters for Circle trajectory
 CIRCLE_RADIUS = 0.005
 CIRCLE_ANGULAR_SPEED = 0.2
-POSITION_GAIN = 10.
 
-# Jacobian estimator and joint-space controller.
-TASK_DIM = 3
-P_INIT = 0.1
+# Parameters for Jacobian estimator 
+TASK_DIM = 3  # control xyz of pen tip
+P_CONST = 0.1  # use constant value for P
 OBS_NOISE = 1e-2
+
+# Parameters for inverse Jacobian based controller
+CONTROL_DECIMATION = 10  # The controller is run every CONTROL_DECIMATION simulation steps.
 DAMPING = 0.005
 PULLBACK_GAIN = 0.5
+POSITION_GAIN = 10.
 
 # initially excite the joints so an all-zero jacobian can learn from the joint and pen-tip motion before circle tracking starts.
-BOOTSTRAP_DURATION = 2.
-BOOTSTRAP_JNT_VELOCITY_SCALE = 2e-2
-BOOTSTRAP_NOISE_MEMORY = 0.95  # To make the random excitation somewhat smooth. 1 is random walk, 0 is white noise
-BOOTSTRAP_GROUPS = (
-    (slice(0, 2), 0.5),  # wrist: de-amplify motion during bootstrap
-    (slice(2, 7), 1.0),  # thumb
-    (slice(7, 10), 1.0),  # index
-    (slice(10, 12), 1.0),  # middle
-)
+EXCITATION_STEP_DURATION = 2.
+EXCITATION_JNT_VELOCITY_SCALE = 2e-2
+EXCITATION_NOISE_MEMORY = 0.95  # To make the random excitation somewhat smooth. 1 is random walk, 0 is white noise
 RANDOM_SEED = 42
-
 
 def _name(model, object_type, object_id):
     return mujoco.mj_id2name(model, object_type, object_id)
 
 
-def _finger_actuator_ids(model):
-    """Return the wrist/thumb/index/middle actuator set."""
-    finger_tags = ("_WR", "_TH", "_FF", "_MF")
-    ids = [
-        actuator_id
-        for actuator_id in range(model.nu)
-        if any(
-            tag in _name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_id)
-            for tag in finger_tags
-        )
-    ]
-    if not ids:
-        raise RuntimeError("No thumb, index, or middle finger actuators found")
-    return np.asarray(ids, dtype=int)
-
-
-def _actuator_dof_ids(model, actuator_ids):
-    """Map Shadow Hand actuator names to the joint velocities they control."""
-    dof_ids = []
-    for actuator_id in actuator_ids:
-        actuator_name = _name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_id)
-        joint_name = actuator_name.replace("_A_", "_").replace("J0", "J1")
-        joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
-        if joint_id == -1:
-            raise RuntimeError(
-                f"Could not map actuator {actuator_name!r} to joint {joint_name!r}"
-            )
-        dof_ids.append(model.jnt_dofadr[joint_id])
-    return np.asarray(dof_ids, dtype=int)
-
-
 class JacobianCircleController:
-    def __init__(self, model, data):
+    def __init__(self, model, data, actuator_ids, dof_ids, excitation_groups):
+        """
+        Args:
+            model: MuJoCo model
+            data: MuJoCo data
+            actuator_ids: indices of actuators to control
+            dof_ids: indices of the degrees of freedom corresponding to the actuators (differs from the actuator IDs for some models)
+            excitation_groups: which groups of actuators to randomly shake together during initial excitation phase
+        """
         self.model = model
         self.data = data
-        self.actuator_ids = _finger_actuator_ids(model)
-        self.dof_ids = _actuator_dof_ids(model, self.actuator_ids)
+        self.actuator_ids = actuator_ids
+        self.dof_ids = dof_ids
+        self.excitation_groups = excitation_groups
         self.dt = model.opt.timestep * CONTROL_DECIMATION
+
+        actuator_names = [
+            _name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_id)
+            for actuator_id in self.actuator_ids
+        ]
+        print("Started Jacobian controller which controls:", ", ".join(actuator_names))
+
 
         self.pen_tip_id = mujoco.mj_name2id(
             model, mujoco.mjtObj.mjOBJ_BODY, "pen_tip"
@@ -96,7 +72,7 @@ class JacobianCircleController:
         self.prev_delta_q_cmd = np.empty(self.actuator_ids.size)
         self.prev_x = np.empty(TASK_DIM)  # measured pen-tip position
         self.init_ctrl = np.empty(model.nu)
-        self.bootstrap_excitation = np.empty(model.nu)
+        self.excitation_ctrl = np.empty(model.nu)
         self.circle_center = np.empty(3)
         self.start_time = 0.0
         self.decimation_counter = CONTROL_DECIMATION
@@ -109,7 +85,8 @@ class JacobianCircleController:
         self.prev_delta_q_cmd[:] = 0.0
         self.prev_x[:] = self.data.xpos[self.pen_tip_id][:TASK_DIM]
         self.init_ctrl[:] = self.data.ctrl
-        self.bootstrap_excitation[:] = 0.0
+        self.excitation_ctrl[:] = 0.0
+        self.prev_excitation_stage = -1
         self.start_time = self.data.time
         self.decimation_counter = CONTROL_DECIMATION
 
@@ -118,7 +95,7 @@ class JacobianCircleController:
 
     def circle_reference(self, time):
         """Return circle position and velocity at simulation time ``time``."""
-        tracking_time = max(time - self.start_time - len(BOOTSTRAP_GROUPS) * BOOTSTRAP_DURATION, 0.0)
+        tracking_time = max(time - self.start_time - len(self.excitation_groups) * EXCITATION_STEP_DURATION, 0.0)
         phase = CIRCLE_ANGULAR_SPEED * tracking_time - np.pi / 2.0
         offset = CIRCLE_RADIUS * np.array(
             [np.cos(phase), np.sin(phase), 0.0]
@@ -130,12 +107,11 @@ class JacobianCircleController:
 
     def _update_jacobian(self, current_velocity, dq):
         """Apply the diagonal-covariance RLS update used by the ROS node."""
-        denominator = P_INIT * (dq * dq) + OBS_NOISE
+        denominator = P_CONST * (dq * dq) + OBS_NOISE
         prediction_error = current_velocity - self.J @ dq
-        numerator = prediction_error[:, None] * (P_INIT * dq)[None, :]
+        numerator = prediction_error[:, None] * (P_CONST * dq)[None, :]
         self.J += numerator / denominator
         # print("Jacobian update:", self.J)
-
 
     def control_cb(self, model, data):
         # only run the controller every CONTROL_DECIMATION steps
@@ -146,7 +122,7 @@ class JacobianCircleController:
 
         dq_cmd = self.prev_delta_q_cmd / self.dt
         dq = data.qvel[self.dof_ids]
-        current_x = data.xpos[self.pen_tip_id][:TASK_DIM]
+        current_x = data.xpos[self.pen_tip_id]
         dx = (current_x - self.prev_x) / self.dt
         self.prev_x[:] = current_x
         
@@ -154,10 +130,9 @@ class JacobianCircleController:
         self._update_jacobian(dx, dq)
 
         target_position, target_velocity = self.circle_reference(data.time)
-        position_error = target_position[:TASK_DIM] - current_x
-        # TODO: add D and I terms once it works on some level
+        position_error = target_position - current_x
         commanded_velocity = (
-            POSITION_GAIN * position_error + target_velocity[:TASK_DIM]
+            POSITION_GAIN * position_error + target_velocity
         )
 
         # Damped pseudoinverse and null-space pullback, matching the ROS node.
@@ -175,18 +150,24 @@ class JacobianCircleController:
         data.ctrl[:] = np.clip(
             data.ctrl, model.actuator_ctrlrange[:, 0], model.actuator_ctrlrange[:, 1]
         )
-        bootstrap_stage = int((data.time - self.start_time) / BOOTSTRAP_DURATION)
-        if bootstrap_stage < len(BOOTSTRAP_GROUPS):
+        excitation_stage = int((data.time - self.start_time) / EXCITATION_STEP_DURATION)
+        if excitation_stage < len(self.excitation_groups):
             # Smooth random excitation: correlated noise avoids abrupt target jumps.
-            group, scale = BOOTSTRAP_GROUPS[bootstrap_stage]
-            self.bootstrap_excitation *= BOOTSTRAP_NOISE_MEMORY
-            self.bootstrap_excitation[group] += (
+            group = self.excitation_groups[excitation_stage]
+            if excitation_stage != self.prev_excitation_stage:
+                print(f"Excitation stage {excitation_stage} of {len(self.excitation_groups)}: shaking joints {group}")
+                self.prev_excitation_stage = excitation_stage
+            self.excitation_ctrl *= EXCITATION_NOISE_MEMORY
+            self.excitation_ctrl[group] += (
                 self.rng.randn(group.stop - group.start)
-                * BOOTSTRAP_JNT_VELOCITY_SCALE
-                * scale
-                * np.sqrt(1.0 - BOOTSTRAP_NOISE_MEMORY**2)
+                * EXCITATION_JNT_VELOCITY_SCALE
+                * np.sqrt(1.0 - EXCITATION_NOISE_MEMORY**2)
             )
-            data.ctrl[:] = self.init_ctrl + self.bootstrap_excitation
+            data.ctrl[:] = self.init_ctrl + self.excitation_ctrl
+        else:
+            if self.prev_excitation_stage != len(self.excitation_groups):
+                print("Excitation finished, starting trajectory following")
+                self.prev_excitation_stage += 1
 
 
         self.prev_delta_q_cmd[:] = delta_q
@@ -251,20 +232,42 @@ def run_viewer(model, data, controller):
 
 
 def main():
-    model = mujoco.MjModel.from_xml_path(str(MODEL_PATH))
-    data = mujoco.MjData(model)
-    mujoco.mj_resetDataKeyframe(model, data, 0)
+    # load the model and reset the simulation
+    shadow_hand_model = mujoco.MjModel.from_xml_path(str(Path(__file__).with_name("shadow_hand") / "scene_pen.xml"))
+    shadow_hand_data = mujoco.MjData(shadow_hand_model)
+    mujoco.mj_resetDataKeyframe(shadow_hand_model, shadow_hand_data, 0)
 
-    controller = JacobianCircleController(model, data)
-    actuator_names = [
-        _name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_id)
-        for actuator_id in controller.actuator_ids
-    ]
-    print("Controlled actuators:", ", ".join(actuator_names))
+    # define the joint groups that shold be excited together during the bootstrap phase
+    shadow_hand_excitation_groups = (
+        slice(0, 2),  # wrist
+        slice(2, 7),  # thumb
+        slice(7, 10),  # index
+        slice(10, 12),  # middle
+    )
+    shadow_hand_actuator_ids = np.arange(13)
+
+    def shadow_hand_actuator2dof_ids(model, actuator_ids):
+        """Map Shadow Hand actuator names to the joint velocities they control."""
+        dof_ids = []
+        for actuator_id in actuator_ids:
+            actuator_name = _name(model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_id)
+            joint_name = actuator_name.replace("_A_", "_").replace("J0", "J1")
+            joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
+            if joint_id == -1:
+                raise RuntimeError(
+                    f"Could not map actuator {actuator_name!r} to joint {joint_name!r}"
+                )
+            dof_ids.append(model.jnt_dofadr[joint_id])
+        return np.asarray(dof_ids, dtype=int)
+    shadow_hand_dof_ids = shadow_hand_actuator2dof_ids(shadow_hand_model, shadow_hand_actuator_ids)
+
+    controller = JacobianCircleController(
+        shadow_hand_model, shadow_hand_data, shadow_hand_actuator_ids, shadow_hand_dof_ids, shadow_hand_excitation_groups
+    )
 
     mujoco.set_mjcb_control(controller.control_cb)
     try:
-        run_viewer(model, data, controller)
+        run_viewer(shadow_hand_model, shadow_hand_data, controller)
     finally:
         mujoco.set_mjcb_control(None)
 
