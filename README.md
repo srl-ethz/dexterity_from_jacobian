@@ -13,6 +13,7 @@ Some elements from the original controller were simplified / modified for the Mu
     - difficult to set predefined postures to interpolate in simulation, where the hand-pen system can't be moved by (human) hand, so this random excitation method was applied
 - Task-space command is P + feedforward velocity (I and D terms removed)
     - also no EMA filtering for the control output
+- Task space controls all three dimensions, not just `XY`
 - 500 Hz simulation, 50 Hz controller
 
 ## Installation
