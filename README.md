@@ -25,6 +25,7 @@ pip install -r requirements.txt
 
 ## Run the MuJoCo controller
 Draws a circle as a demo of the Jacobian dexterity controller.
+The main code (`sim.py`) contains all code for the Shadow Hand demo and is kept deliberately minimal (< 400 loc), both as a demonstration of the controller's simplicity and to improve readability and extensibility.
 
 ![](images/shadow_hand_sim.gif)
 
