@@ -1,5 +1,6 @@
 # dexterity_from_jacobian
 Open-source implementation for paper: **Rapid Learning of Dexterous In-Hand Pen Writing through Real-Time Jacobian Estimation**
+Main project website is at https://srl-ethz.github.io/rapid-dexterous-writing/
 
 ## Simulation-specific implementation details
 
